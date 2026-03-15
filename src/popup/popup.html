@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StartGPT Popup</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>StartGPT</h1>
+      <p id="active-tab">Tab: unknown</p>
+      <p id="run-status">Status: idle</p>
+      <p id="query-status">Query: (none)</p>
+      <p id="error-status"></p>
+      <div class="actions">
+        <button id="open-sidebar" type="button">Open ChatGPT Sidebar</button>
+        <button id="run-now" type="button">Regenerate Overview</button>
+        <button id="refresh-state" type="button">Refresh Diagnostics</button>
+      </div>
+      <p id="bridge-status">Bridge: unknown</p>
+      <details open>
+        <summary>Diagnostics</summary>
+        <pre id="diagnostics-output">Loading diagnostics...</pre>
+      </details>
+    </main>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

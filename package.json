@@ -1,0 +1,22 @@
+{
+  "name": "startgpt-sidebar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Firefox extension scaffold for Startpage + ChatGPT Sidebar.",
+  "scripts": {
+    "dev": "web-ext run -c web-ext.config.mjs",
+    "lint": "node scripts/lint.mjs",
+    "playwright": "node scripts/run-playwright.cjs",
+    "playwright:install": "node scripts/run-playwright.cjs install firefox",
+    "playwright:list": "node scripts/run-playwright.cjs install --list",
+    "test": "node scripts/run-vitest.cjs run",
+    "build": "node scripts/pack.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "playwright": "^1.58.2",
+    "vitest": "^3.2.4",
+    "web-ext": "^8.8.0"
+  }
+}

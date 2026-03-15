@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StartGPT Options</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="options-root">
+      <h1>StartGPT Settings</h1>
+      <form id="settings-form" class="options-form">
+        <label class="row checkbox-row">
+          <input id="auto-run" name="autoRunOnStartpage" type="checkbox" />
+          <span>Auto-run on Startpage results</span>
+        </label>
+
+        <label class="row checkbox-row">
+          <input id="auto-inject" name="autoInjectOverviewCard" type="checkbox" />
+          <span>Auto-inject overview card on Startpage</span>
+        </label>
+
+        <label class="row" for="max-results">
+          <span>Max visible results to send</span>
+          <input id="max-results" name="maxResults" type="number" min="1" max="10" />
+        </label>
+
+        <label class="row" for="prompt-mode">
+          <span>Prompt mode</span>
+          <select id="prompt-mode" name="promptMode">
+            <option value="grounded_overview">Grounded overview</option>
+            <option value="compare_results">Compare results</option>
+            <option value="click_recommendations">Click recommendations</option>
+            <option value="follow_up_assistant">Follow-up assistant</option>
+          </select>
+        </label>
+
+        <label class="row checkbox-row">
+          <input id="debug-mode" name="debugMode" type="checkbox" />
+          <span>Enable debug diagnostics in sidebar</span>
+        </label>
+
+        <div class="actions">
+          <button type="submit">Save settings</button>
+        </div>
+
+        <p id="status-text" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

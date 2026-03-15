@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <body>
+    <input name="query" value="best laptops 2026" />
+    <main>
+      <article data-testid="result">
+        <h3><a href="https://example.com/one">Top Result One</a></h3>
+        <p data-testid="result-description">First visible snippet.</p>
+        <cite data-testid="result-url">example.com/one</cite>
+      </article>
+
+      <article data-testid="result" style="display:none">
+        <h3><a href="https://example.com/hidden">Hidden Result</a></h3>
+        <p data-testid="result-description">This should be ignored.</p>
+      </article>
+
+      <article data-testid="result">
+        <h3>Malformed Missing Link</h3>
+        <p data-testid="result-description">This should be ignored.</p>
+      </article>
+
+      <article data-testid="result">
+        <h3><a href="https://example.com/two">Top Result Two</a></h3>
+        <p data-testid="result-description">Second visible snippet.</p>
+        <cite data-testid="result-url">example.com/two</cite>
+      </article>
+    </main>
+  </body>
+</html>

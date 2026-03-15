@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StartGPT Sidebar</title>
+    <link rel="stylesheet" href="./sidebar.css" />
+  </head>
+  <body>
+    <main class="sidebar" id="sidebar-root">
+      <header class="sidebar-header">
+        <h1>StartGPT Sidebar</h1>
+      </header>
+
+      <section class="panel">
+        <h2>Current Query</h2>
+        <p id="current-query">No Startpage query captured yet.</p>
+      </section>
+
+      <section class="panel">
+        <div id="status-banner" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Startpage Signal</h2>
+        <p id="startpage-signal">Waiting for Startpage content script.</p>
+      </section>
+
+      <section class="panel">
+        <h2>ChatGPT Bridge</h2>
+        <p id="chatgpt-bridge-signal">Waiting for ChatGPT bridge signal.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Overview</h2>
+        <article id="response-body"></article>
+      </section>
+
+      <section class="panel">
+        <h2>Sources</h2>
+        <ul id="sources-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Ask Follow-up</h2>
+        <form id="follow-up-form">
+          <label class="visually-hidden" for="follow-up-input">Follow-up question</label>
+          <textarea id="follow-up-input" rows="3" placeholder="Ask a follow-up question"></textarea>
+          <div class="action-row">
+            <button id="follow-up-submit" type="submit">Ask Follow-up</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="action-row">
+          <button id="regenerate-button" type="button">Regenerate</button>
+          <button id="open-bridge-button" type="button">Open ChatGPT Sidebar</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p id="error-area" role="alert" aria-live="assertive"></p>
+      </section>
+
+      <section class="panel">
+        <p id="meta-info"></p>
+      </section>
+
+      <section class="panel" id="debug-panel" hidden>
+        <h2>Debug</h2>
+        <pre id="debug-details"></pre>
+      </section>
+    </main>
+    <script type="module" src="./sidebar.js"></script>
+  </body>
+</html>

@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "StartGPT Sidebar",
+  "description": "Startpage + ChatGPT sidebar bridge extension scaffold.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "StartGPT Sidebar",
+    "default_popup": "popup/popup.html"
+  },
+  "background": {
+    "scripts": ["background/background.js"],
+    "type": "module"
+  },
+  "sidebar_action": {
+    "default_title": "StartGPT Sidebar",
+    "default_panel": "sidebar/chatgpt-panel.html"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["storage", "tabs", "activeTab"],
+  "host_permissions": [
+    "https://startpage.com/*",
+    "https://*.startpage.com/*",
+    "https://chatgpt.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://startpage.com/*",
+        "https://*.startpage.com/*"
+      ],
+      "js": ["content/startpage-loader.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content/chatgpt-bridge-loader.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/startpage.js",
+        "content/chatgpt-bridge.js",
+        "content/dom/*.js",
+        "content/inject/*.js",
+        "content/shared/*.js"
+      ],
+      "matches": [
+        "https://startpage.com/*",
+        "https://*.startpage.com/*",
+        "https://chatgpt.com/*"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "startgpt-sidebar@example.local"
+    }
+  }
+}

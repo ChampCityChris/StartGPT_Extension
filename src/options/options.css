@@ -1,32 +1,48 @@
-:root {
-  --bg: #f5f7fb;
-  --panel: #ffffff;
-  --text: #1f2937;
-  --border: #cfd8e3;
-  --primary: #1d4ed8;
-  --muted: #4b5563;
-}
-
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: #f5f8ff;
+  color: #1f2937;
   font-family: "Segoe UI", Tahoma, sans-serif;
   margin: 0;
-  padding: 20px;
 }
 
 .options-root {
+  box-sizing: border-box;
   margin: 0 auto;
-  max-width: 560px;
+  max-width: 760px;
+  padding: 20px;
+}
+
+h1 {
+  margin: 0 0 14px;
+}
+
+.panel,
+.notice {
+  background: #fff;
+  border: 1px solid #d4dcea;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  padding: 14px;
+}
+
+.notice.warning {
+  border-color: #f0b45c;
+  background: #fff9ed;
+}
+
+.notice h2,
+.panel h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.notice p {
+  margin: 0 0 8px;
 }
 
 .options-form {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
 }
 
 .row {
@@ -36,29 +52,44 @@ body {
 
 .checkbox-row {
   align-items: center;
-  grid-template-columns: auto 1fr;
+  display: flex;
+  gap: 8px;
 }
 
-input[type="number"],
-select {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+input,
+select,
+button {
   font: inherit;
-  padding: 8px;
+}
+
+input,
+select {
+  border: 1px solid #ccd6ea;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 button {
-  background: var(--primary);
+  background: #1858c1;
   border: none;
   border-radius: 8px;
   color: #fff;
   cursor: pointer;
-  font: inherit;
-  padding: 9px 12px;
+  padding: 8px 12px;
+}
+
+button.danger {
+  background: #b42318;
 }
 
 #status-text {
-  color: var(--muted);
-  margin: 0;
-  min-height: 1.2em;
+  font-size: 0.95rem;
+  margin: 6px 0 0;
+  min-height: 1.4em;
 }

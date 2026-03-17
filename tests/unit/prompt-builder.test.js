@@ -22,37 +22,43 @@ describe("buildPrompt", () => {
   it("includes query and ordered visible results", () => {
     const prompt = buildPrompt({ query: "best camera", results: RESULTS });
 
-    expect(prompt).toContain("User query:");
+    expect(prompt).toContain("User Query:");
     expect(prompt).toContain("best camera");
 
-    const firstIndex = prompt.indexOf("1. First Result");
-    const secondIndex = prompt.indexOf("2. Second Result");
+    const firstIndex = prompt.indexOf("[1] First Result");
+    const secondIndex = prompt.indexOf("[2] Second Result");
     expect(firstIndex).toBeGreaterThan(-1);
     expect(secondIndex).toBeGreaterThan(-1);
     expect(firstIndex).toBeLessThan(secondIndex);
   });
 
-  it("changes task section based on mode", () => {
-    const comparePrompt = buildPrompt({
+  it("changes instructions based on summary mode", () => {
+    const quickPrompt = buildPrompt({
       query: "electric cars",
       results: RESULTS,
-      mode: "compare_results"
+      mode: "quick_overview"
     });
+    expect(quickPrompt).toContain("quick overview");
 
-    expect(comparePrompt).toContain("Compare the strongest disagreements");
-
-    const clickPrompt = buildPrompt({
+    const expandedPrompt = buildPrompt({
       query: "electric cars",
       results: RESULTS,
-      mode: "click_recommendations"
+      mode: "expanded_perplexity"
     });
-
-    expect(clickPrompt).toContain("Recommend which 1-3 results to click first and why.");
+    expect(expandedPrompt).toContain("Key Takeaways");
+    expect(expandedPrompt).toContain("inline bracket citations");
   });
 
-  it("is deterministic for same input", () => {
-    const one = buildPrompt({ query: "x", results: RESULTS, mode: "grounded_overview" });
-    const two = buildPrompt({ query: "x", results: RESULTS, mode: "grounded_overview" });
-    expect(one).toBe(two);
+  it("includes follow-up context when provided", () => {
+    const prompt = buildPrompt({
+      query: "electric cars",
+      results: RESULTS,
+      followUp: "What should I verify first?",
+      previousAnswer: "Earlier answer"
+    });
+
+    expect(prompt).toContain("Follow-Up Question:");
+    expect(prompt).toContain("What should I verify first?");
+    expect(prompt).toContain("Previous Assistant Answer:");
   });
 });

@@ -1,4 +1,4 @@
-export const CHATGPT_SIDEBAR_PANEL_URL = "/sidebar/chatgpt-panel.html";
+export const STARTGPT_SIDEBAR_PANEL_URL = "/sidebar/sidebar.html";
 export const SIDEBAR_UNAVAILABLE_URL = "/sidebar/unavailable.html";
 
 export function isStartpageUrl(url) {
@@ -22,16 +22,15 @@ export function isStartpageResultsUrl(url) {
   try {
     const parsed = new URL(url);
     const path = parsed.pathname.toLowerCase();
-    return (
-      parsed.searchParams.has("query") ||
-      parsed.searchParams.has("q") ||
-      path.includes("/sp/search")
-    );
+    return parsed.searchParams.has("query")
+      || parsed.searchParams.has("q")
+      || path.includes("/sp/search")
+      || path.includes("/search");
   } catch {
     return false;
   }
 }
 
 export function getSidebarPanelForUrl(url) {
-  return isStartpageResultsUrl(url) ? CHATGPT_SIDEBAR_PANEL_URL : SIDEBAR_UNAVAILABLE_URL;
+  return isStartpageResultsUrl(url) ? STARTGPT_SIDEBAR_PANEL_URL : SIDEBAR_UNAVAILABLE_URL;
 }

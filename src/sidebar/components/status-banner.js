@@ -1,11 +1,4 @@
-const LOADING_STATES = new Set([
-  "queued",
-  "opening_bridge",
-  "waiting_for_chatgpt",
-  "submitting_prompt",
-  "waiting_for_response",
-  "parsing_response"
-]);
+const LOADING_STATES = new Set(["captured", "queued", "running"]);
 
 function getTone(status) {
   if (status === "failed") {
@@ -23,6 +16,9 @@ function getTone(status) {
 function getStatusLabel(status) {
   if (!status) {
     return "Idle";
+  }
+  if (status === "captured") {
+    return "Preparing Overview";
   }
   return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }

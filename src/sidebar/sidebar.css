@@ -27,7 +27,13 @@ body {
 
 .sidebar-header h1 {
   font-size: 1.1rem;
-  margin: 0 0 2px;
+  margin: 0;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 3px 0 0;
 }
 
 .panel {
@@ -45,10 +51,16 @@ body {
 #current-query,
 #response-body,
 #error-area,
-#meta-info {
+#meta-info,
+#startpage-signal,
+#api-key-signal {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.4;
+}
+
+#api-key-signal {
+  margin-top: 8px;
 }
 
 #response-body {
@@ -101,14 +113,18 @@ body {
   color: var(--danger);
 }
 
-textarea {
+textarea,
+select {
   box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
   padding: 8px;
-  resize: vertical;
   width: 100%;
+}
+
+textarea {
+  resize: vertical;
 }
 
 .action-row {
@@ -141,18 +157,6 @@ button:disabled {
 #meta-info {
   color: var(--muted);
   font-size: 0.8rem;
-}
-
-#debug-details {
-  background: #f8fafc;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.78rem;
-  margin: 0;
-  max-height: 220px;
-  overflow: auto;
-  padding: 8px;
-  white-space: pre-wrap;
 }
 
 .visually-hidden {

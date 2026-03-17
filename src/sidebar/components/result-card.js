@@ -5,7 +5,7 @@ function getPlaceholder(status) {
   if (status === "completed") {
     return "No overview was returned.";
   }
-  return "Waiting for a response from ChatGPT.";
+  return "Automatic quick overview will appear here.";
 }
 
 export function renderResultCard(element, text, status) {

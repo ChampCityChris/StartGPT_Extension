@@ -10,6 +10,7 @@
     <main class="sidebar" id="sidebar-root">
       <header class="sidebar-header">
         <h1>StartGPT Sidebar</h1>
+        <p class="subtitle">Browser-only BYOK mode</p>
       </header>
 
       <section class="panel">
@@ -22,13 +23,9 @@
       </section>
 
       <section class="panel">
-        <h2>Startpage Signal</h2>
-        <p id="startpage-signal">Waiting for Startpage content script.</p>
-      </section>
-
-      <section class="panel">
-        <h2>ChatGPT Bridge</h2>
-        <p id="chatgpt-bridge-signal">Waiting for ChatGPT bridge signal.</p>
+        <h2>Runtime</h2>
+        <p id="startpage-signal">Waiting for Startpage context.</p>
+        <p id="api-key-signal">API key status unknown.</p>
       </section>
 
       <section class="panel">
@@ -39,6 +36,16 @@
       <section class="panel">
         <h2>Sources</h2>
         <ul id="sources-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Mode</h2>
+        <label for="summary-mode">Run summary mode</label>
+        <select id="summary-mode">
+          <option value="">Use default from settings</option>
+          <option value="quick_overview">Quick overview</option>
+          <option value="expanded_perplexity">Expanded (perplexity-style)</option>
+        </select>
       </section>
 
       <section class="panel">
@@ -54,8 +61,8 @@
 
       <section class="panel">
         <div class="action-row">
-          <button id="regenerate-button" type="button">Regenerate</button>
-          <button id="open-bridge-button" type="button">Open ChatGPT Sidebar</button>
+          <button id="regenerate-button" type="button">Run StartGPT</button>
+          <button id="open-settings-button" type="button">Open Settings</button>
         </div>
       </section>
 
@@ -65,11 +72,6 @@
 
       <section class="panel">
         <p id="meta-info"></p>
-      </section>
-
-      <section class="panel" id="debug-panel" hidden>
-        <h2>Debug</h2>
-        <pre id="debug-details"></pre>
       </section>
     </main>
     <script type="module" src="./sidebar.js"></script>

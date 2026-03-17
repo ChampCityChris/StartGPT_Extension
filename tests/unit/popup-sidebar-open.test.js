@@ -36,7 +36,7 @@ describe("openSidebarFromUserGesture", () => {
         type: "setPanel",
         payload: {
           tabId: 55,
-          panel: "/sidebar/chatgpt-panel.html"
+          panel: "/sidebar/sidebar.html"
         }
       },
       { type: "open" }

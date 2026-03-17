@@ -171,7 +171,7 @@ function buildCardDom(shadowRoot) {
 
   const title = document.createElement("p");
   title.className = "startgpt-title";
-  title.textContent = "ChatGPT Overview";
+  title.textContent = "StartGPT Overview";
 
   const badge = document.createElement("span");
   badge.className = "startgpt-badge";
@@ -267,7 +267,7 @@ export function createOverviewCard() {
         : "Query: waiting for Startpage context";
       nodes.body.textContent = state?.summary
         ? sanitizeText(state.summary)
-        : "No overview yet.";
+        : "No overview yet. Automatic quick overview will appear here.";
       nodes.error.textContent = state?.error ? sanitizeText(state.error) : "";
       nodes.progress.textContent = state?.progressDetail ? sanitizeText(state.progressDetail) : "";
       renderSources(nodes.sources, state?.sources);

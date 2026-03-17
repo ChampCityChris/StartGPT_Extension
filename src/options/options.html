@@ -9,43 +9,73 @@
   <body>
     <main class="options-root">
       <h1>StartGPT Settings</h1>
-      <form id="settings-form" class="options-form">
-        <label class="row checkbox-row">
-          <input id="auto-run" name="autoRunOnStartpage" type="checkbox" />
-          <span>Auto-run on Startpage results</span>
-        </label>
 
-        <label class="row checkbox-row">
-          <input id="auto-inject" name="autoInjectOverviewCard" type="checkbox" />
-          <span>Auto-inject overview card on Startpage</span>
-        </label>
+      <section class="notice warning">
+        <h2>BYOK Security Warning</h2>
+        <p>This extension uses your own OpenAI API key and your own OpenAI billing account.</p>
+        <p>Key storage in browser software is convenient but not equivalent to server-side secret storage.</p>
+      </section>
 
-        <label class="row" for="max-results">
-          <span>Max visible results to send</span>
-          <input id="max-results" name="maxResults" type="number" min="1" max="10" />
-        </label>
+      <section class="panel">
+        <h2>OpenAI API Key</h2>
+        <p id="key-state">API key status: unknown</p>
+        <form id="api-key-form" class="options-form">
+          <label class="row" for="api-key-input">
+            <span>API Key</span>
+            <input id="api-key-input" name="apiKey" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="actions">
+            <button id="validate-key-button" type="button">Validate Key</button>
+            <button id="save-key-button" type="submit">Save / Replace Key</button>
+            <button id="delete-key-button" type="button" class="danger">Delete Key</button>
+          </div>
+        </form>
+      </section>
 
-        <label class="row" for="prompt-mode">
-          <span>Prompt mode</span>
-          <select id="prompt-mode" name="promptMode">
-            <option value="grounded_overview">Grounded overview</option>
-            <option value="compare_results">Compare results</option>
-            <option value="click_recommendations">Click recommendations</option>
-            <option value="follow_up_assistant">Follow-up assistant</option>
-          </select>
-        </label>
+      <section class="panel">
+        <h2>Defaults</h2>
+        <form id="settings-form" class="options-form">
+          <label class="row" for="model">
+            <span>Approved model</span>
+            <select id="model" name="model">
+              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              <option value="gpt-4.1">gpt-4.1</option>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+            </select>
+          </label>
 
-        <label class="row checkbox-row">
-          <input id="debug-mode" name="debugMode" type="checkbox" />
-          <span>Enable debug diagnostics in sidebar</span>
-        </label>
+          <label class="row" for="default-summary-mode">
+            <span>Default summary mode</span>
+            <select id="default-summary-mode" name="defaultSummaryMode">
+              <option value="quick_overview">Quick overview</option>
+              <option value="expanded_perplexity">Expanded (perplexity-style)</option>
+            </select>
+          </label>
 
-        <div class="actions">
-          <button type="submit">Save settings</button>
-        </div>
+          <label class="row" for="max-results">
+            <span>Max captured results</span>
+            <input id="max-results" name="maxResults" type="number" min="1" max="10" />
+          </label>
 
-        <p id="status-text" role="status" aria-live="polite"></p>
-      </form>
+          <label class="row checkbox-row">
+            <input id="auto-inject" name="autoInjectOverviewCard" type="checkbox" />
+            <span>Auto-inject overview card on Startpage</span>
+          </label>
+
+          <div class="actions">
+            <button type="submit">Save Settings</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="notice">
+        <h2>Privacy</h2>
+        <p>StartGPT automatically sends captured query/result text to OpenAI for the first quick overview when an API key is configured.</p>
+        <p>Expanded deep dives and follow-up questions remain manual.</p>
+        <p>No telemetry is enabled by default. Prompt content and API keys are never sent to any StartGPT backend because none exists.</p>
+      </section>
+
+      <p id="status-text" role="status" aria-live="polite"></p>
     </main>
     <script type="module" src="./options.js"></script>
   </body>

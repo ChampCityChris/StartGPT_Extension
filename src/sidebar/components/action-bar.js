@@ -1,14 +1,14 @@
 export function bindActionBar(nodes, handlers) {
   const {
     regenerateButton,
-    openBridgeButton,
+    openSettingsButton,
     followUpForm,
     followUpInput,
     followUpSubmit
   } = nodes;
   const {
     onRegenerate,
-    onOpenBridge,
+    onOpenSettings,
     onFollowUp
   } = handlers;
 
@@ -16,8 +16,8 @@ export function bindActionBar(nodes, handlers) {
     onRegenerate();
   });
 
-  openBridgeButton.addEventListener("click", () => {
-    onOpenBridge();
+  openSettingsButton.addEventListener("click", () => {
+    onOpenSettings();
   });
 
   followUpForm.addEventListener("submit", (event) => {
@@ -33,7 +33,6 @@ export function bindActionBar(nodes, handlers) {
   return {
     setDisabled(disabled) {
       regenerateButton.disabled = disabled;
-      openBridgeButton.disabled = disabled;
       followUpInput.disabled = disabled;
       followUpSubmit.disabled = disabled;
     }

@@ -1,12 +1,4 @@
-const LOADING_STATES = new Set([
-  "loading",
-  "queued",
-  "opening_bridge",
-  "waiting_for_chatgpt",
-  "submitting_prompt",
-  "waiting_for_response",
-  "parsing_response"
-]);
+const LOADING_STATES = new Set(["loading", "captured", "queued", "running"]);
 
 export function normalizeCardStatus(status) {
   if (status === "failed") {
@@ -21,45 +13,31 @@ export function normalizeCardStatus(status) {
   return "idle";
 }
 
-function formatStatus(status) {
-  return String(status || "idle").replace(/_/g, " ");
-}
-
 function describeLoadingStatus(status) {
   switch (status) {
     case "loading":
-      return "capturing Startpage results";
+      return "capturing context";
+    case "captured":
+      return "preparing automatic overview";
     case "queued":
-      return "queued to start";
-    case "opening_bridge":
-      return "connecting to ChatGPT context";
-    case "waiting_for_chatgpt":
-      return "waiting for ChatGPT composer";
-    case "submitting_prompt":
-      return "submitting grounded prompt";
-    case "waiting_for_response":
-      return "waiting for ChatGPT response";
-    case "parsing_response":
-      return "parsing response and sources";
+      return "queued";
+    case "running":
+      return "calling OpenAI";
     default:
-      return formatStatus(status);
+      return "working";
   }
 }
 
 export function getCardStatusLabel(status) {
   const normalized = normalizeCardStatus(status);
-  switch (normalized) {
-    case "loading":
-      return `Working: ${describeLoadingStatus(status)}`;
-    case "completed":
-      return "Overview ready";
-    case "failed":
-      return "Overview failed";
-    default:
-      return `Overview ${formatStatus(status)}`;
+  if (normalized === "loading") {
+    return `Working: ${describeLoadingStatus(status)}`;
   }
-}
-
-export function renderLoadingState(status) {
-  return normalizeCardStatus(status);
+  if (normalized === "completed") {
+    return "Overview ready";
+  }
+  if (normalized === "failed") {
+    return "Overview failed";
+  }
+  return "Idle";
 }

@@ -54,4 +54,15 @@ describe("message router", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("unknown_type");
   });
+
+  it("routes API-key validation without an entered key", async () => {
+    const result = await routeMessage({
+      type: MSG.OPTIONS_VALIDATE_API_KEY
+    }, {
+      url: "moz-extension://test/options/options.html"
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.command).toBe("options_validate_api_key");
+  });
 });

@@ -40,4 +40,10 @@ describe("secure storage key lifecycle", () => {
     const storage = createStorageMock();
     await expect(storeApiKey("   ", storage)).rejects.toThrow("api_key_empty");
   });
+
+  it("normalizes copied keys before storage and retrieval", async () => {
+    const storage = createStorageMock();
+    await storeApiKey("  Bearer sk-test-123 \n\t", storage);
+    await expect(getStoredApiKey(storage)).resolves.toBe("sk-test-123");
+  });
 });

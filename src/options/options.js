@@ -6,6 +6,7 @@ const apiKeyInput = document.getElementById("api-key-input");
 const keyState = document.getElementById("key-state");
 const statusText = document.getElementById("status-text");
 const validateKeyButton = document.getElementById("validate-key-button");
+const saveKeyButton = document.getElementById("save-key-button");
 const deleteKeyButton = document.getElementById("delete-key-button");
 
 const fields = {
@@ -80,37 +81,61 @@ async function saveApiKey(event) {
     return;
   }
 
-  const response = await browser.runtime.sendMessage({
-    type: MSG.OPTIONS_SET_API_KEY,
-    apiKey
-  });
-
-  if (!response?.ok) {
-    setStatus(response?.error || "Failed to save API key.", true);
-    return;
+  if (saveKeyButton) {
+    saveKeyButton.disabled = true;
   }
 
-  apiKeyInput.value = "";
-  updateKeyState(Boolean(response.hasApiKey));
-  setStatus("API key saved to browser.storage.local.");
+  try {
+    const response = await browser.runtime.sendMessage({
+      type: MSG.OPTIONS_SET_API_KEY,
+      apiKey
+    });
+
+    if (!response?.ok) {
+      setStatus(response?.error || "Failed to save API key.", true);
+      return;
+    }
+
+    updateKeyState(Boolean(response.hasApiKey));
+    setStatus("API key saved. Validating stored key...");
+
+    const validation = await browser.runtime.sendMessage({
+      type: MSG.OPTIONS_VALIDATE_API_KEY,
+      apiKey: ""
+    });
+
+    if (validation?.ok) {
+      apiKeyInput.value = "";
+      setStatus("API key saved and stored-key validation succeeded.");
+      return;
+    }
+
+    setStatus(
+      `API key saved, but validation failed: ${validation?.error?.message || validation?.error || "Validation failed."}`,
+      true
+    );
+  } finally {
+    if (saveKeyButton) {
+      saveKeyButton.disabled = false;
+    }
+  }
 }
 
 async function validateApiKey() {
-  const apiKey = String(apiKeyInput.value || "").trim();
-  if (!apiKey) {
-    setStatus("Enter an API key first.", true);
-    return;
-  }
+  const apiKey = String(apiKeyInput.value || "");
 
   validateKeyButton.disabled = true;
   try {
+    setStatus(apiKey.trim() ? "Validating entered API key..." : "Validating stored API key...");
     const response = await browser.runtime.sendMessage({
       type: MSG.OPTIONS_VALIDATE_API_KEY,
       apiKey
     });
 
     if (response?.ok) {
-      setStatus("API key validation succeeded.");
+      setStatus(apiKey.trim()
+        ? "Entered API key validation succeeded."
+        : "Stored API key validation succeeded.");
       return;
     }
 

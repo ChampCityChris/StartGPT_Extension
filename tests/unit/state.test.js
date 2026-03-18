@@ -129,11 +129,17 @@ describe("state helpers", () => {
     const failed = failSessionRun(3, {
       runId: "run_3_1",
       code: "OPENAI_TIMEOUT",
-      message: "timed out"
+      message: "timed out",
+      diagnostics: {
+        responseStatus: "incomplete",
+        incompleteReason: "max_output_tokens"
+      }
     });
     expect(failed.applied).toBe(true);
     expect(getSession(3)?.status).toBe(STATUS.FAILED);
     expect(getSession(3)?.lastError?.code).toBe("OPENAI_TIMEOUT");
+    expect(getSession(3)?.lastError?.diagnostics?.incompleteReason).toBe("max_output_tokens");
+    expect(getSession(3)?.debug?.lastErrorDiagnostics?.responseStatus).toBe("incomplete");
   });
 
   it("loads settings from storage and merges defaults", async () => {

@@ -205,7 +205,7 @@ export async function routeMessage(message, sender) {
       return {
         ok: true,
         command: "options_validate_api_key",
-        apiKey: String(message.apiKey || "")
+        apiKey: typeof message.apiKey === "string" ? message.apiKey : ""
       };
     }
 

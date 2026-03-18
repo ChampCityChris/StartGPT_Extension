@@ -1,7 +1,12 @@
 import { STORAGE_KEYS } from "./constants.js";
 
 function normalizeApiKey(value) {
-  return String(value || "").trim();
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const withoutBearerPrefix = trimmed.replace(/^Bearer\s+/i, "");
+  return withoutBearerPrefix.replace(/\s+/g, "");
 }
 
 export async function getStoredApiKey(storageArea = browser.storage.local) {

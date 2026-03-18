@@ -215,7 +215,8 @@ export function validateSetApiKeyPayload(payload, maxKeyChars) {
   if (payload.type !== MSG.OPTIONS_SET_API_KEY) {
     errors.push("type must be OPTIONS_SET_API_KEY");
   }
-  if (!isNonEmptyString(payload.apiKey) || payload.apiKey.length > maxKeyChars) {
+  const apiKey = String(payload.apiKey || "").trim();
+  if (!apiKey || apiKey.length > maxKeyChars) {
     errors.push(`apiKey must be 1-${maxKeyChars} chars`);
   }
   return { ok: errors.length === 0, errors };
@@ -229,8 +230,15 @@ export function validateApiKeyValidationPayload(payload, maxKeyChars) {
   if (payload.type !== MSG.OPTIONS_VALIDATE_API_KEY) {
     errors.push("type must be OPTIONS_VALIDATE_API_KEY");
   }
-  if (!isNonEmptyString(payload.apiKey) || payload.apiKey.length > maxKeyChars) {
-    errors.push(`apiKey must be 1-${maxKeyChars} chars`);
+  if (payload.apiKey != null) {
+    if (typeof payload.apiKey !== "string") {
+      errors.push("apiKey must be a string when provided");
+    } else {
+      const apiKey = payload.apiKey.trim();
+      if (apiKey.length > maxKeyChars) {
+        errors.push(`apiKey must be <= ${maxKeyChars} chars when provided`);
+      }
+    }
   }
   return { ok: errors.length === 0, errors };
 }

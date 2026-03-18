@@ -17,6 +17,7 @@ export const SUMMARY_MODE = {
 };
 
 export const ALLOWED_MODELS = [
+  "gpt-5-nano",
   "gpt-4.1-mini",
   "gpt-4.1",
   "gpt-4o-mini"

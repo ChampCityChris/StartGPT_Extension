@@ -1,5 +1,28 @@
 import { SUMMARY_MODE } from "./constants.js";
 
+export const QUICK_OVERVIEW_SYSTEM_PROMPT = [
+  "You generate search overviews for a browser extension.",
+  "Your job is to summarize a search results page quickly and accurately.",
+  "",
+  "Rules:",
+  "- Use ONLY the provided query and search results.",
+  "- Do not invent facts not supported by the results.",
+  "- Do not describe the page mechanically unless evidence is weak.",
+  "- Answer the likely user intent first.",
+  "- Prefer direct language over hedging, but state uncertainty when needed.",
+  "- Keep it compact and useful.",
+  "- No filler, no throat-clearing.",
+  "",
+  "Return JSON with this schema:",
+  "{",
+  "  \"headline\": string,",
+  "  \"summary\": string,",
+  "  \"key_points\": [string, string, string],",
+  "  \"confidence\": \"high\" | \"medium\" | \"low\",",
+  "  \"evidence_gap\": string",
+  "}"
+].join("\n");
+
 function normalizeLine(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -38,6 +61,51 @@ function buildResultBlock(results) {
       return parts.join("\n");
     })
     .join("\n\n");
+}
+
+function toResultDomain(result) {
+  const fallback = clip(result?.displayUrl, 120) || "unknown";
+  try {
+    const parsed = new URL(String(result?.url || ""));
+    return parsed.hostname || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function buildQuickOverviewResultLines(results, maxCount = 5) {
+  const ordered = Array.isArray(results)
+    ? [...results].sort((a, b) => (a.rank || Number.MAX_SAFE_INTEGER) - (b.rank || Number.MAX_SAFE_INTEGER))
+    : [];
+
+  const lines = ordered.slice(0, maxCount).map((result, index) => {
+    const domain = toResultDomain(result);
+    const title = clip(result?.title, 220) || "(untitled result)";
+    const snippet = clip(result?.snippet, 320) || "No snippet available.";
+    return `${index + 1}. [${domain}] ${title} - ${snippet}`;
+  });
+
+  for (let i = lines.length; i < maxCount; i += 1) {
+    lines.push(`${i + 1}. [unknown] (no result captured) - No snippet available.`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildQuickOverviewUserPrompt({ query, results }) {
+  const safeQuery = clip(query, 500) || "(missing query)";
+  return [
+    `Query: ${safeQuery}`,
+    "",
+    "Search results:",
+    buildQuickOverviewResultLines(results),
+    "",
+    "Instructions:",
+    "Write a compact overview for the query.",
+    "The summary should be 60-90 words.",
+    "Each key point should be one sentence.",
+    "If the evidence is thin or conflicting, say so clearly."
+  ].join("\n");
 }
 
 function getModeInstructions(mode) {
@@ -97,4 +165,37 @@ export function buildPrompt({ query, results, mode = SUMMARY_MODE.QUICK_OVERVIEW
   }
 
   return sections.join("\n");
+}
+
+export function buildPromptPayload({
+  query,
+  results,
+  mode = SUMMARY_MODE.QUICK_OVERVIEW,
+  followUp = "",
+  previousAnswer = ""
+}) {
+  const followUpText = clip(followUp, 1200);
+  if (mode === SUMMARY_MODE.QUICK_OVERVIEW && !followUpText) {
+    const input = buildQuickOverviewUserPrompt({ query, results });
+    return {
+      instructions: QUICK_OVERVIEW_SYSTEM_PROMPT,
+      input,
+      expectsStructuredJson: true,
+      preview: `SYSTEM:\n${QUICK_OVERVIEW_SYSTEM_PROMPT}\n\nUSER:\n${input}`
+    };
+  }
+
+  const input = buildPrompt({
+    query,
+    results,
+    mode,
+    followUp,
+    previousAnswer
+  });
+  return {
+    instructions: "",
+    input,
+    expectsStructuredJson: false,
+    preview: input
+  };
 }

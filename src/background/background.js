@@ -23,8 +23,9 @@ import {
   upsertStartpageSession,
   updateSettings
 } from "./state.js";
-import { buildPrompt } from "./prompt-builder.js";
+import { buildPromptPayload } from "./prompt-builder.js";
 import { normalizeClientError, requestOpenAiSummary, validateApiKeyCandidate } from "./openai-client.js";
+import { formatQuickOverviewOutput } from "./quick-overview-format.js";
 import {
   deleteStoredApiKey,
   hasStoredApiKey,
@@ -55,6 +56,10 @@ function resolveModel(settings) {
     : DEFAULT_SETTINGS.model;
 }
 
+function supportsReasoningEffort(model) {
+  return typeof model === "string" && model.toLowerCase().startsWith("gpt-5");
+}
+
 function resolveOutputTokens(settings) {
   const candidate = Number.isInteger(settings.maxOutputTokens) ? settings.maxOutputTokens : DEFAULT_SETTINGS.maxOutputTokens;
   return Math.max(32, Math.min(LIMITS.MAX_OUTPUT_TOKENS_CAP, candidate));
@@ -75,11 +80,12 @@ function sanitizeSources(results, maxCount = 5) {
   })).filter((source) => source.url.startsWith("http://") || source.url.startsWith("https://"));
 }
 
-function buildResponsePayload(text, results, mode, usage = null) {
+function buildResponsePayload(text, results, mode, usage = null, structured = null) {
   return {
     text,
     sources: sanitizeSources(results, mode === SUMMARY_MODE.EXPANDED ? 5 : 3),
-    usage
+    usage,
+    structured
   };
 }
 
@@ -186,15 +192,16 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
   const maxOutputTokens = resolveOutputTokens(settings);
   const timeoutMs = resolveTimeoutMs(settings);
   const resultsForPrompt = session.results.slice(0, Math.max(1, Math.min(settings.maxResults || 5, LIMITS.MAX_RESULTS_CAP)));
-  const prompt = buildPrompt({
+  const promptPayload = buildPromptPayload({
     query: session.query,
     results: resultsForPrompt,
     mode: summaryMode,
     followUp,
     previousAnswer: session.response?.text || ""
   });
+  const promptPreview = String(promptPayload.preview || "");
 
-  if (prompt.length > LIMITS.MAX_PROMPT_CHARS) {
+  if (promptPreview.length > LIMITS.MAX_PROMPT_CHARS) {
     failSessionRun(sourceTabId, {
       runId,
       code: "PROMPT_TOO_LARGE",
@@ -219,7 +226,7 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
     return;
   }
 
-  markSessionRunning(sourceTabId, runId, sanitizeDebugText(prompt, 1800));
+  markSessionRunning(sourceTabId, runId, sanitizeDebugText(promptPreview, 1800));
   applyDebugProgress(sourceTabId, "Sending request to OpenAI.");
   await broadcastSessionUpdated(sourceTabId);
 
@@ -227,19 +234,34 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
     const result = await requestOpenAiSummary({
       apiKey,
       model,
-      prompt,
+      prompt: promptPayload.input,
+      instructions: promptPayload.instructions,
+      textVerbosity: promptPayload.expectsStructuredJson ? "low" : "",
+      reasoningEffort: promptPayload.expectsStructuredJson && supportsReasoningEffort(model) ? "minimal" : "",
       maxOutputTokens,
       timeoutMs,
       signal: abortController.signal
     });
 
+    const formatted = promptPayload.expectsStructuredJson
+      ? formatQuickOverviewOutput(result.text)
+      : {
+        text: result.text,
+        structured: null,
+        formatUsed: "raw_text"
+      };
+
     if (inFlightControllersByTabId.get(sourceTabId)?.runId !== runId) {
       return;
     }
 
+    if (promptPayload.expectsStructuredJson && formatted.formatUsed !== "structured_json") {
+      applyDebugProgress(sourceTabId, "OpenAI quick overview JSON parse fallback used.");
+    }
+
     completeSessionRun(sourceTabId, {
       runId,
-      response: buildResponsePayload(result.text, resultsForPrompt, summaryMode, result.usage),
+      response: buildResponsePayload(formatted.text, resultsForPrompt, summaryMode, result.usage, formatted.structured),
       completedAt: Date.now()
     });
     await broadcastSessionUpdated(sourceTabId);
@@ -260,7 +282,8 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
       runId,
       code: normalized.code,
       message: normalized.message,
-      recoverable: normalized.recoverable
+      recoverable: normalized.recoverable,
+      diagnostics: normalized.diagnostics || null
     });
     await broadcastSessionUpdated(sourceTabId);
   } finally {
@@ -415,7 +438,25 @@ async function handleRoutedMessage(route, message) {
     }
 
     case "options_validate_api_key": {
-      const validation = await validateApiKeyCandidate(route.apiKey, resolveTimeoutMs(getSettings()));
+      const enteredApiKey = String(route.apiKey || "").trim();
+      const apiKey = enteredApiKey || await getStoredApiKey();
+      if (!apiKey) {
+        return {
+          ok: false,
+          error: {
+            code: "MISSING_API_KEY",
+            message: "No OpenAI API key found. Add one in StartGPT Settings.",
+            recoverable: true
+          }
+        };
+      }
+
+      const settings = getSettings();
+      const validation = await validateApiKeyCandidate(
+        apiKey,
+        resolveModel(settings),
+        resolveTimeoutMs(settings)
+      );
       return {
         ok: validation.ok,
         error: validation.ok ? null : validation.error

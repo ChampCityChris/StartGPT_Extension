@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  validateApiKeyValidationPayload,
   validateFollowUpPayload,
   validateOptionsSavePayload,
   validateRunRequestPayload,
@@ -79,5 +80,22 @@ describe("message schema validation", () => {
 
     expect(validation.ok).toBe(false);
     expect(validation.errors.join(" | ")).toContain("allowlisted");
+  });
+
+  it("allows validate-api-key payloads without apiKey for stored-key checks", () => {
+    const validation = validateApiKeyValidationPayload({
+      type: MSG.OPTIONS_VALIDATE_API_KEY
+    }, 200);
+
+    expect(validation.ok).toBe(true);
+  });
+
+  it("allows validate-api-key payloads with empty apiKey for stored-key checks", () => {
+    const validation = validateApiKeyValidationPayload({
+      type: MSG.OPTIONS_VALIDATE_API_KEY,
+      apiKey: ""
+    }, 200);
+
+    expect(validation.ok).toBe(true);
   });
 });

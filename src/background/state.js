@@ -208,7 +208,13 @@ export function completeSessionRun(tabId, { runId, response, completedAt = Date.
   return { applied: true, session: updated };
 }
 
-export function failSessionRun(tabId, { runId = null, code, message, recoverable = true }) {
+export function failSessionRun(tabId, {
+  runId = null,
+  code,
+  message,
+  recoverable = true,
+  diagnostics = null
+}) {
   const session = getSession(tabId);
   if (!session) {
     return { applied: false, reason: "session_missing" };
@@ -222,12 +228,14 @@ export function failSessionRun(tabId, { runId = null, code, message, recoverable
     lastError: {
       code: String(code || "RUN_FAILED"),
       message: String(message || "Run failed."),
-      recoverable: Boolean(recoverable)
+      recoverable: Boolean(recoverable),
+      diagnostics: diagnostics && typeof diagnostics === "object" ? diagnostics : null
     },
     debug: {
       ...(session.debug || {}),
       progressMessage: String(message || "Run failed."),
-      lastErrorCode: String(code || "RUN_FAILED")
+      lastErrorCode: String(code || "RUN_FAILED"),
+      lastErrorDiagnostics: diagnostics && typeof diagnostics === "object" ? diagnostics : null
     }
   });
 

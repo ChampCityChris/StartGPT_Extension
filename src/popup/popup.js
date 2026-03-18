@@ -37,7 +37,15 @@ function setErrorStatus(text) {
   }
 }
 
+function formatList(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return "(none)";
+  }
+  return value.join(", ");
+}
+
 function buildDiagnosticText(tab, session, stateResponse) {
+  const openAiDiagnostics = session?.lastError?.diagnostics || session?.debug?.lastErrorDiagnostics || null;
   return [
     `Tab ID: ${tab?.id ?? "(none)"}`,
     `Tab URL: ${tab?.url || "(none)"}`,
@@ -48,7 +56,18 @@ function buildDiagnosticText(tab, session, stateResponse) {
     `Error Message: ${session?.lastError?.message || "(none)"}`,
     `Result Count: ${Array.isArray(session?.results) ? session.results.length : 0}`,
     `Model: ${stateResponse?.state?.settings?.model || "(none)"}`,
-    `Default Mode: ${stateResponse?.state?.settings?.defaultSummaryMode || "(none)"}`
+    `Default Mode: ${stateResponse?.state?.settings?.defaultSummaryMode || "(none)"}`,
+    `OpenAI Response Status: ${openAiDiagnostics?.responseStatus || "(none)"}`,
+    `OpenAI Response ID: ${openAiDiagnostics?.responseId || "(none)"}`,
+    `OpenAI Incomplete Reason: ${openAiDiagnostics?.incompleteReason || "(none)"}`,
+    `OpenAI Output Item Count: ${Number.isInteger(openAiDiagnostics?.outputItemCount) ? openAiDiagnostics.outputItemCount : 0}`,
+    `OpenAI Output Types: ${formatList(openAiDiagnostics?.outputItemTypes)}`,
+    `OpenAI Content Types: ${formatList(openAiDiagnostics?.contentTypes)}`,
+    `OpenAI top-level output_text: ${openAiDiagnostics?.hasTopLevelOutputText ? "yes" : "no"}`,
+    `OpenAI raw body chars: ${Number.isInteger(openAiDiagnostics?.rawBodyChars) ? openAiDiagnostics.rawBodyChars : 0}`,
+    `OpenAI Retry Planned: ${openAiDiagnostics?.retryPlanned ? "yes" : "no"}`,
+    `OpenAI Retry max_output_tokens: ${Number.isInteger(openAiDiagnostics?.retryMaxOutputTokens) ? openAiDiagnostics.retryMaxOutputTokens : "(none)"}`,
+    `OpenAI Parsed JSON: ${openAiDiagnostics?.parsedJson ? "yes" : "no"}`
   ].join("\n");
 }
 

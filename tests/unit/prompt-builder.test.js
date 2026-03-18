@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt } from "../../src/background/prompt-builder.js";
+import { buildPrompt, buildPromptPayload } from "../../src/background/prompt-builder.js";
 
 const RESULTS = [
   {
@@ -47,6 +47,22 @@ describe("buildPrompt", () => {
     });
     expect(expandedPrompt).toContain("Key Takeaways");
     expect(expandedPrompt).toContain("inline bracket citations");
+  });
+
+  it("builds quick overview payload with system and user prompts", () => {
+    const payload = buildPromptPayload({
+      query: "electric cars",
+      results: RESULTS,
+      mode: "quick_overview"
+    });
+
+    expect(payload.expectsStructuredJson).toBe(true);
+    expect(payload.instructions).toContain("You generate search overviews for a browser extension.");
+    expect(payload.instructions).toContain("\"headline\": string");
+    expect(payload.input).toContain("Query: electric cars");
+    expect(payload.input).toContain("Search results:");
+    expect(payload.input).toContain("1. [example.com] First Result");
+    expect(payload.input).toContain("The summary should be 60-90 words.");
   });
 
   it("includes follow-up context when provided", () => {

@@ -44,4 +44,52 @@ describe("quick overview format", () => {
     expect(formatted.formatUsed).toBe("raw_text");
     expect(formatted.text).toBe("not valid json");
   });
+
+  it("salvages malformed json-like payload into structured output", () => {
+    const malformed = [
+      "{",
+      "  \"headline\": \"Wii U hacking vs Raspberry Pi emulator box: Pi generally favored for emulation, with DIY integrations possible\",",
+      "  \"summary\": \"Search results suggest Raspberry Pi often outperforms the Wii U for emulation in raw terms.\",",
+      "  \"key_points\": [",
+      "    \"Reddit indicates Raspberry Pi 3 is a slightly better emulator box than the Wii U in raw performance terms.\",",
+      "    \"YouTube shows Raspberry Pi 5 capable of running Steam and WiiU emulation with Cemu.\",",
+      "    \"DIY projects reuse Wii U components or housing to create RetroPie-style portable emulation setups.\"",
+      "  ],",
+      "  \"confidence\": \"medium\",",
+      "  \"evidence_gap\": \"Limited benchmarks and potential bias",
+      ""
+    ].join("\n");
+
+    const formatted = formatQuickOverviewOutput(malformed);
+
+    expect(formatted.formatUsed).toBe("structured_json");
+    expect(formatted.text).toContain("Key points:");
+    expect(formatted.text).toContain("Confidence: medium");
+    expect(formatted.text).toContain("Evidence gap: Limited benchmarks and potential bias");
+    expect(formatted.structured?.key_points).toHaveLength(3);
+  });
+
+  it("salvages malformed json wrapped in markdown fences", () => {
+    const fencedMalformed = [
+      "```json",
+      "{",
+      "  \"headline\": \"Game streaming vs local emulation\",",
+      "  \"summary\": \"Local emulation is usually preferred for latency and ownership.\",",
+      "  \"key_points\": [",
+      "    \"Cloud options trade convenience for variable performance.\",",
+      "    \"Local setups can require upfront configuration effort.\",",
+      "    \"Hardware capability still determines emulator headroom.\"",
+      "  ],",
+      "  \"confidence\": \"high\",",
+      "  \"evidence_gap\": \"No shared benchmark methodology across sources\"",
+      "",
+      "```"
+    ].join("\n");
+
+    const formatted = formatQuickOverviewOutput(fencedMalformed);
+
+    expect(formatted.formatUsed).toBe("structured_json");
+    expect(formatted.structured?.headline).toContain("Game streaming vs local emulation");
+    expect(formatted.structured?.confidence).toBe("high");
+  });
 });

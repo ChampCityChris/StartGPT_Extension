@@ -65,7 +65,32 @@ body {
 
 #response-body {
   min-height: 64px;
-  white-space: pre-wrap;
+}
+
+#response-body > :first-child {
+  margin-top: 0;
+}
+
+#response-body > :last-child {
+  margin-bottom: 0;
+}
+
+#response-body h3 {
+  font-size: 0.95rem;
+  margin: 0 0 8px;
+}
+
+#response-body p {
+  margin: 0 0 10px;
+}
+
+#response-body ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+#response-body li {
+  margin: 0 0 6px;
 }
 
 #sources-list {

@@ -10,7 +10,6 @@ const saveKeyButton = document.getElementById("save-key-button");
 const deleteKeyButton = document.getElementById("delete-key-button");
 
 const fields = {
-  model: document.getElementById("model"),
   defaultSummaryMode: document.getElementById("default-summary-mode"),
   maxResults: document.getElementById("max-results"),
   autoInjectOverviewCard: document.getElementById("auto-inject")
@@ -28,7 +27,6 @@ function updateKeyState(hasApiKey) {
 }
 
 function applySettings(settings) {
-  fields.model.value = settings.model || "gpt-4.1-mini";
   fields.defaultSummaryMode.value = settings.defaultSummaryMode || "quick_overview";
   fields.maxResults.value = String(settings.maxResults || 5);
   fields.autoInjectOverviewCard.checked = Boolean(settings.autoInjectOverviewCard);
@@ -37,7 +35,6 @@ function applySettings(settings) {
 function readSettingsFromForm() {
   const maxResults = Number.parseInt(fields.maxResults.value || "", 10);
   return {
-    model: fields.model.value,
     defaultSummaryMode: fields.defaultSummaryMode.value,
     maxResults: Number.isInteger(maxResults) ? maxResults : 5,
     autoInjectOverviewCard: fields.autoInjectOverviewCard.checked

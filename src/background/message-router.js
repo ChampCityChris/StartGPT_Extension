@@ -21,6 +21,71 @@ function resolveSourceTabId(message, sender) {
   return null;
 }
 
+function canUseTabsApi() {
+  return Boolean(globalThis.browser?.tabs?.query);
+}
+
+function sameUrlPathAndQuery(leftUrl, rightUrl) {
+  try {
+    const left = new URL(String(leftUrl || ""));
+    const right = new URL(String(rightUrl || ""));
+    return left.origin === right.origin
+      && left.pathname === right.pathname
+      && left.search === right.search;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveSourceTabIdWithFallback(message, sender) {
+  const direct = resolveSourceTabId(message, sender);
+  if (Number.isInteger(direct)) {
+    return direct;
+  }
+
+  if (!canUseTabsApi()) {
+    return null;
+  }
+
+  const pageUrl = String(message?.pageUrl || sender?.tab?.url || sender?.url || "");
+  if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) {
+    return null;
+  }
+
+  let parsedPageUrl;
+  try {
+    parsedPageUrl = new URL(pageUrl);
+  } catch {
+    return null;
+  }
+
+  try {
+    const tabs = await browser.tabs.query({
+      url: `${parsedPageUrl.origin}/*`
+    });
+
+    const exact = tabs.find((tab) => Number.isInteger(tab?.id) && String(tab?.url || "") === pageUrl);
+    if (Number.isInteger(exact?.id)) {
+      return exact.id;
+    }
+
+    const sameRoute = tabs.find((tab) =>
+      Number.isInteger(tab?.id) && sameUrlPathAndQuery(tab?.url, pageUrl));
+    if (Number.isInteger(sameRoute?.id)) {
+      return sameRoute.id;
+    }
+
+    const active = tabs.find((tab) => Number.isInteger(tab?.id) && tab.active);
+    if (Number.isInteger(active?.id)) {
+      return active.id;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function isStartpageSender(sender) {
   const url = String(sender?.tab?.url || sender?.url || "");
   return url.startsWith("https://startpage.com/") || url.includes("://www.startpage.com/");
@@ -66,7 +131,7 @@ export async function routeMessage(message, sender) {
       if (!validation.ok) {
         return validationError(validation.errors);
       }
-      const sourceTabId = resolveSourceTabId(message, sender);
+      const sourceTabId = await resolveSourceTabIdWithFallback(message, sender);
       if (!Number.isInteger(sourceTabId)) {
         return { ok: false, error: "missing_source_tab_id" };
       }
@@ -89,7 +154,7 @@ export async function routeMessage(message, sender) {
       if (!validation.ok) {
         return validationError(validation.errors);
       }
-      const sourceTabId = resolveSourceTabId(message, sender);
+      const sourceTabId = await resolveSourceTabIdWithFallback(message, sender);
       if (!Number.isInteger(sourceTabId)) {
         return { ok: false, error: "missing_source_tab_id" };
       }
@@ -101,7 +166,7 @@ export async function routeMessage(message, sender) {
     }
 
     case MSG.REQUEST_RUN_FOR_TAB: {
-      if (!isExtensionSender(sender)) {
+      if (!isExtensionSender(sender) && !isStartpageSender(sender)) {
         return { ok: false, error: "unauthorized_sender" };
       }
       const validation = validateRunRequestPayload(message);
@@ -157,7 +222,7 @@ export async function routeMessage(message, sender) {
         allowedModels: ALLOWED_MODELS,
         allowedSummaryModes: Object.values(SUMMARY_MODE),
         maxResultsCap: LIMITS.MAX_RESULTS_CAP,
-        maxOutputTokensCap: LIMITS.MAX_OUTPUT_TOKENS_CAP,
+        maxOutputTokensCap: LIMITS.MAX_EXPANDED_OUTPUT_TOKENS_CAP,
         timeoutMsCap: LIMITS.REQUEST_TIMEOUT_MS_CAP
       });
       if (!validation.ok) {

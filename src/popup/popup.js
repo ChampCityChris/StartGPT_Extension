@@ -1,9 +1,7 @@
 import { MSG } from "../content/shared/message-types.js";
-import { SUMMARY_MODE } from "../background/constants.js";
-import { openSidebarFromUserGesture } from "./sidebar-open.js";
+import { selectPopupSession } from "./session-resolution.js";
+import { buildDiagnosticText } from "./diagnostics.js";
 
-const openSidebarButton = document.getElementById("open-sidebar");
-const runNowButton = document.getElementById("run-now");
 const openSettingsButton = document.getElementById("open-settings");
 const activeTabLabel = document.getElementById("active-tab");
 const runStatusLabel = document.getElementById("run-status");
@@ -11,8 +9,6 @@ const queryStatusLabel = document.getElementById("query-status");
 const keyStatusLabel = document.getElementById("key-status");
 const errorStatusLabel = document.getElementById("error-status");
 const diagnosticsOutput = document.getElementById("diagnostics-output");
-
-let currentActiveTab = null;
 
 function isStartpageUrl(url) {
   if (typeof url !== "string" || !url) {
@@ -26,9 +22,30 @@ function isStartpageUrl(url) {
   }
 }
 
+function isStartpageResultsUrl(url) {
+  if (!isStartpageUrl(url)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.toLowerCase();
+    const hasKnownPath = ["/sp/search", "/do/search", "/do/dsearch", "/search"].includes(pathname);
+    const hasQueryParam = Boolean(parsed.searchParams.get("query") || parsed.searchParams.get("q"));
+    return hasKnownPath || hasQueryParam;
+  } catch {
+    return false;
+  }
+}
+
 async function getActiveTab() {
-  const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-  return tabs[0] || null;
+  const currentWindowTabs = await browser.tabs.query({ active: true, currentWindow: true });
+  if (currentWindowTabs[0]) {
+    return currentWindowTabs[0];
+  }
+
+  const lastFocusedTabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+  return lastFocusedTabs[0] || null;
 }
 
 function setErrorStatus(text) {
@@ -37,135 +54,103 @@ function setErrorStatus(text) {
   }
 }
 
-function formatList(value) {
-  if (!Array.isArray(value) || value.length === 0) {
-    return "(none)";
+function getLatestCompletedOverviewText(session) {
+  const text = String(session?.response?.text || "");
+  if (!text.trim()) {
+    return "";
   }
-  return value.join(", ");
+  return Number.isInteger(session?.completedAt) ? text : "";
 }
 
-function buildDiagnosticText(tab, session, stateResponse) {
-  const openAiDiagnostics = session?.lastError?.diagnostics || session?.debug?.lastErrorDiagnostics || null;
-  return [
-    `Tab ID: ${tab?.id ?? "(none)"}`,
-    `Tab URL: ${tab?.url || "(none)"}`,
-    `Has API Key: ${stateResponse?.hasApiKey ? "yes" : "no"}`,
-    `Status: ${session?.status || "idle"}`,
-    `Progress: ${session?.debug?.progressMessage || "(none)"}`,
-    `Error Code: ${session?.debug?.lastErrorCode || session?.lastError?.code || "(none)"}`,
-    `Error Message: ${session?.lastError?.message || "(none)"}`,
-    `Result Count: ${Array.isArray(session?.results) ? session.results.length : 0}`,
-    `Model: ${stateResponse?.state?.settings?.model || "(none)"}`,
-    `Default Mode: ${stateResponse?.state?.settings?.defaultSummaryMode || "(none)"}`,
-    `OpenAI Response Status: ${openAiDiagnostics?.responseStatus || "(none)"}`,
-    `OpenAI Response ID: ${openAiDiagnostics?.responseId || "(none)"}`,
-    `OpenAI Incomplete Reason: ${openAiDiagnostics?.incompleteReason || "(none)"}`,
-    `OpenAI Output Item Count: ${Number.isInteger(openAiDiagnostics?.outputItemCount) ? openAiDiagnostics.outputItemCount : 0}`,
-    `OpenAI Output Types: ${formatList(openAiDiagnostics?.outputItemTypes)}`,
-    `OpenAI Content Types: ${formatList(openAiDiagnostics?.contentTypes)}`,
-    `OpenAI top-level output_text: ${openAiDiagnostics?.hasTopLevelOutputText ? "yes" : "no"}`,
-    `OpenAI raw body chars: ${Number.isInteger(openAiDiagnostics?.rawBodyChars) ? openAiDiagnostics.rawBodyChars : 0}`,
-    `OpenAI Retry Planned: ${openAiDiagnostics?.retryPlanned ? "yes" : "no"}`,
-    `OpenAI Retry max_output_tokens: ${Number.isInteger(openAiDiagnostics?.retryMaxOutputTokens) ? openAiDiagnostics.retryMaxOutputTokens : "(none)"}`,
-    `OpenAI Parsed JSON: ${openAiDiagnostics?.parsedJson ? "yes" : "no"}`
-  ].join("\n");
+async function getOverviewTextFromTab(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return null;
+  }
+  try {
+    const response = await browser.tabs.sendMessage(tabId, {
+      type: MSG.POPUP_GET_OVERVIEW_TEXT
+    });
+    if (!response?.ok) {
+      return null;
+    }
+    return {
+      ok: true,
+      overviewText: String(response.overviewText || "").trim(),
+      query: String(response.query || ""),
+      summaryMode: String(response.summaryMode || ""),
+      status: String(response.status || ""),
+      sourceTabId: Number.isInteger(response.sourceTabId) ? response.sourceTabId : null
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function refreshPopupState() {
   const tab = await getActiveTab();
-  currentActiveTab = tab;
   const tabId = Number.isInteger(tab?.id) ? tab.id : null;
   const onStartpage = isStartpageUrl(tab?.url);
+  const onStartpageResults = isStartpageResultsUrl(tab?.url);
 
   activeTabLabel.textContent = onStartpage
     ? `Tab: Startpage (${tabId ?? "unknown"})`
     : `Tab: ${tab?.url || "unknown page"}`;
 
-  if (!tabId) {
-    runStatusLabel.textContent = "Status: idle";
-    queryStatusLabel.textContent = "Query: (none)";
-    keyStatusLabel.textContent = "API Key: unknown";
-    diagnosticsOutput.textContent = buildDiagnosticText(tab, null, null);
-    runNowButton.disabled = true;
-    return;
+  const stateRequest = {
+    type: MSG.SIDEBAR_GET_STATE
+  };
+  if (Number.isInteger(tabId)) {
+    stateRequest.sourceTabId = tabId;
   }
 
-  const stateResponse = await browser.runtime.sendMessage({
-    type: MSG.SIDEBAR_GET_STATE,
-    sourceTabId: tabId
-  });
+  const stateResponse = await browser.runtime.sendMessage(stateRequest);
 
   if (!stateResponse?.ok) {
     runStatusLabel.textContent = "Status: failed";
     queryStatusLabel.textContent = "Query: (none)";
     keyStatusLabel.textContent = "API Key: unknown";
     setErrorStatus(stateResponse?.error || "Failed to read runtime state.");
-    diagnosticsOutput.textContent = buildDiagnosticText(tab, null, stateResponse);
-    runNowButton.disabled = !onStartpage;
+    diagnosticsOutput.textContent = buildDiagnosticText(tab, null, stateResponse, "");
     return;
   }
 
-  const session = stateResponse.session || stateResponse.state?.sessions?.[String(tabId)] || null;
-  runStatusLabel.textContent = `Status: ${session?.status || "idle"}`;
-  queryStatusLabel.textContent = `Query: ${session?.query || "(none captured yet)"}`;
+  const session = onStartpageResults ? selectPopupSession(stateResponse, tabId) : null;
+  const tabOverview = onStartpageResults
+    ? await getOverviewTextFromTab(tabId)
+    : null;
+  if (!Number.isInteger(tabId) && Number.isInteger(session?.tabId)) {
+    activeTabLabel.textContent = `Tab: fallback Startpage session (${session.tabId})`;
+  }
+
+  let latestOverviewText = "";
+  if (onStartpageResults && tabOverview?.overviewText) {
+    latestOverviewText = String(tabOverview.overviewText || "").trim();
+  }
+  if (onStartpageResults && !latestOverviewText) {
+    latestOverviewText = getLatestCompletedOverviewText(session);
+  }
+
+  const effectiveStatus = String(tabOverview?.status || session?.status || "idle");
+  const effectiveQuery = String(tabOverview?.query || session?.query || "");
+  runStatusLabel.textContent = `Status: ${effectiveStatus}`;
+  queryStatusLabel.textContent = `Query: ${effectiveQuery || "(none captured yet)"}`;
   keyStatusLabel.textContent = `API Key: ${stateResponse.hasApiKey ? "configured" : "missing"}`;
+  const defaultHint = onStartpageResults
+    ? (stateResponse.hasApiKey ? "" : "Add an OpenAI API key in Settings to enable automatic overview.")
+    : (onStartpage
+      ? "Open a Startpage results page to see live overview status."
+      : "Switch to a Startpage results tab.")
   setErrorStatus(
     session?.lastError?.message
-      || (onStartpage
-        ? (stateResponse.hasApiKey ? "" : "Add an OpenAI API key in Settings to enable automatic overview.")
-        : "Switch to a Startpage results tab.")
+      || ((session || tabOverview?.overviewText) ? "" : defaultHint)
   );
-  diagnosticsOutput.textContent = buildDiagnosticText(tab, session, stateResponse);
-  runNowButton.disabled = !onStartpage;
-}
-
-if (openSidebarButton) {
-  openSidebarButton.addEventListener("click", () => {
-    let openPromise;
-
-    openSidebarButton.disabled = true;
-    try {
-      openPromise = openSidebarFromUserGesture(browser.sidebarAction, currentActiveTab);
-      setErrorStatus("");
-    } catch (error) {
-      openSidebarButton.disabled = false;
-      setErrorStatus(error instanceof Error ? error.message : "Sidebar open failed.");
-      return;
-    }
-
-    Promise.resolve(openPromise)
-      .then(() => refreshPopupState())
-      .catch((error) => {
-        setErrorStatus(error instanceof Error ? error.message : "Sidebar open failed.");
-      })
-      .finally(() => {
-        openSidebarButton.disabled = false;
-      });
-  });
-}
-
-if (runNowButton) {
-  runNowButton.addEventListener("click", async () => {
-    const activeTab = await getActiveTab();
-    if (!Number.isInteger(activeTab?.id) || !isStartpageUrl(activeTab?.url)) {
-      setErrorStatus("Switch to a Startpage results tab before running.");
-      return;
-    }
-
-    const response = await browser.runtime.sendMessage({
-      type: MSG.REQUEST_RUN_FOR_TAB,
-      sourceTabId: activeTab.id,
-      summaryMode: SUMMARY_MODE.EXPANDED
-    });
-
-    if (!response?.ok) {
-      setErrorStatus(response?.error || "Could not queue run.");
-      return;
-    }
-
-    setErrorStatus("");
-    await refreshPopupState();
-  });
+  diagnosticsOutput.textContent = buildDiagnosticText(
+    tab,
+    session,
+    stateResponse,
+    latestOverviewText,
+    tabOverview
+  );
 }
 
 if (openSettingsButton) {
@@ -173,6 +158,13 @@ if (openSettingsButton) {
     browser.runtime.openOptionsPage().catch(() => undefined);
   });
 }
+
+browser.runtime.onMessage.addListener((message) => {
+  if (message?.type === MSG.SESSION_UPDATED) {
+    refreshPopupState().catch(() => undefined);
+  }
+  return undefined;
+});
 
 refreshPopupState().catch((error) => {
   setErrorStatus(error instanceof Error ? error.message : "Failed to initialize popup.");

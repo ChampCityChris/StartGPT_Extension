@@ -3,11 +3,13 @@ import {
   DEBUG,
   ALLOWED_MODELS,
   DEFAULT_SETTINGS,
+  FORCED_MODELS_BY_SUMMARY_MODE,
   LIMITS,
   STATUS,
   SUMMARY_MODE
 } from "./constants.js";
 import {
+  markAutoQuickQueued,
   completeSessionRun,
   failSessionRun,
   getSession,
@@ -17,6 +19,7 @@ import {
   markSessionQueued,
   markSessionRunning,
   markStartpageScriptStatus,
+  shouldAutoQueueQuickOverview,
   setActiveSidebarTabId,
   setSettings,
   setSessionProgress,
@@ -34,9 +37,6 @@ import {
 } from "./secure-storage.js";
 import { MSG } from "../content/shared/message-types.js";
 import { sanitizeDebugText } from "../content/shared/sanitize.js";
-import {
-  getSidebarPanelForUrl
-} from "./sidebar-panel.js";
 
 const inFlightControllersByTabId = new Map();
 
@@ -50,19 +50,69 @@ function resolveSummaryMode(requestedMode, settings) {
   return DEFAULT_SETTINGS.defaultSummaryMode;
 }
 
+function resolveRunSummaryMode({ requestedSummaryMode, settings, session, followUp }) {
+  if (requestedSummaryMode && Object.values(SUMMARY_MODE).includes(requestedSummaryMode)) {
+    return requestedSummaryMode;
+  }
+
+  if (String(followUp || "").trim()) {
+    const previousMode = session?.response?.mode;
+    if (previousMode && Object.values(SUMMARY_MODE).includes(previousMode)) {
+      return previousMode;
+    }
+  }
+
+  return resolveSummaryMode(null, settings);
+}
+
 function resolveModel(settings) {
   return ALLOWED_MODELS.includes(settings.model)
     ? settings.model
     : DEFAULT_SETTINGS.model;
 }
 
+function resolveRunModel(summaryMode, settings) {
+  const forcedModel = FORCED_MODELS_BY_SUMMARY_MODE[summaryMode];
+  if (ALLOWED_MODELS.includes(forcedModel)) {
+    return forcedModel;
+  }
+  return resolveModel(settings);
+}
+
 function supportsReasoningEffort(model) {
   return typeof model === "string" && model.toLowerCase().startsWith("gpt-5");
 }
 
-function resolveOutputTokens(settings) {
-  const candidate = Number.isInteger(settings.maxOutputTokens) ? settings.maxOutputTokens : DEFAULT_SETTINGS.maxOutputTokens;
-  return Math.max(32, Math.min(LIMITS.MAX_OUTPUT_TOKENS_CAP, candidate));
+function resolveOutputTokenCap(summaryMode) {
+  if (summaryMode === SUMMARY_MODE.EXPANDED) {
+    return LIMITS.MAX_EXPANDED_OUTPUT_TOKENS_CAP;
+  }
+  return LIMITS.MAX_OUTPUT_TOKENS_CAP;
+}
+
+function resolveGenerationControls({ summaryMode, expectsStructuredJson, model }) {
+  if (expectsStructuredJson) {
+    return {
+      textVerbosity: "low",
+      reasoningEffort: supportsReasoningEffort(model) ? "low" : ""
+    };
+  }
+
+  if (summaryMode === SUMMARY_MODE.EXPANDED) {
+    return {
+      textVerbosity: "medium",
+      reasoningEffort: supportsReasoningEffort(model) ? "low" : ""
+    };
+  }
+
+  return {
+    textVerbosity: "",
+    reasoningEffort: ""
+  };
+}
+
+function resolveOutputTokens(summaryMode = SUMMARY_MODE.QUICK_OVERVIEW) {
+  return resolveOutputTokenCap(summaryMode);
 }
 
 function resolveTimeoutMs(settings) {
@@ -80,12 +130,104 @@ function sanitizeSources(results, maxCount = 5) {
   })).filter((source) => source.url.startsWith("http://") || source.url.startsWith("https://"));
 }
 
-function buildResponsePayload(text, results, mode, usage = null, structured = null) {
+function summarizeRunUsage(usage, model, {
+  requestedMaxOutputTokens = null,
+  attemptedMaxOutputTokens = null,
+  maxOutputTokensCap = null
+} = {}) {
+  if (!usage || typeof usage !== "object") {
+    return null;
+  }
+
+  const inputTokens = Number.isInteger(usage.inputTokens) ? usage.inputTokens : 0;
+  const outputTokens = Number.isInteger(usage.outputTokens) ? usage.outputTokens : 0;
+  const totalTokens = Number.isInteger(usage.totalTokens) ? usage.totalTokens : (inputTokens + outputTokens);
+  const modelKey = String(model || "").trim().toLowerCase();
+
+  return {
+    model: modelKey,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    requestedMaxOutputTokens: Number.isInteger(requestedMaxOutputTokens) ? requestedMaxOutputTokens : null,
+    attemptedMaxOutputTokens: Number.isInteger(attemptedMaxOutputTokens) ? attemptedMaxOutputTokens : null,
+    maxOutputTokensCap: Number.isInteger(maxOutputTokensCap) ? maxOutputTokensCap : null
+  };
+}
+
+function buildUsageByMode(previousUsageByMode, mode, runUsage) {
+  const next = previousUsageByMode && typeof previousUsageByMode === "object"
+    ? { ...previousUsageByMode }
+    : {};
+
+  if (!mode || !runUsage) {
+    return next;
+  }
+
+  next[mode] = runUsage;
+  return next;
+}
+
+function computeJsonVisibleCharCount(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  try {
+    return JSON.stringify(payload).length;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeRunTelemetry(result, fallbackModelSnapshot, structuredPayload = null) {
+  const usage = result?.usage && typeof result.usage === "object"
+    ? result.usage
+    : null;
+
+  const modelSnapshot = String(result?.modelSnapshot || fallbackModelSnapshot || "").trim();
+  return {
+    outputTokens: Number.isInteger(usage?.outputTokens) ? usage.outputTokens : null,
+    reasoningTokens: Number.isInteger(usage?.reasoningTokens) ? usage.reasoningTokens : null,
+    visibleJsonChars: computeJsonVisibleCharCount(structuredPayload),
+    modelSnapshot: modelSnapshot || null,
+    retryCount: Number.isInteger(result?.retryCount) && result.retryCount >= 0
+      ? result.retryCount
+      : 0
+  };
+}
+
+function buildTelemetryByMode(previousTelemetryByMode, mode, runTelemetry) {
+  const next = previousTelemetryByMode && typeof previousTelemetryByMode === "object"
+    ? { ...previousTelemetryByMode }
+    : {};
+
+  if (!mode || !runTelemetry) {
+    return next;
+  }
+
+  next[mode] = runTelemetry;
+  return next;
+}
+
+function buildResponsePayload(
+  text,
+  results,
+  mode,
+  usage = null,
+  structured = null,
+  usageByMode = null,
+  telemetry = null,
+  telemetryByMode = null
+) {
   return {
     text,
+    mode,
     sources: sanitizeSources(results, mode === SUMMARY_MODE.EXPANDED ? 5 : 3),
     usage,
-    structured
+    structured,
+    usageByMode: usageByMode && typeof usageByMode === "object" ? usageByMode : {},
+    telemetry,
+    telemetryByMode: telemetryByMode && typeof telemetryByMode === "object" ? telemetryByMode : {}
   };
 }
 
@@ -187,9 +329,15 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
   });
 
   const settings = getSettings();
-  const summaryMode = resolveSummaryMode(requestedSummaryMode, settings);
-  const model = resolveModel(settings);
-  const maxOutputTokens = resolveOutputTokens(settings);
+  const summaryMode = resolveRunSummaryMode({
+    requestedSummaryMode,
+    settings,
+    session,
+    followUp
+  });
+  const model = resolveRunModel(summaryMode, settings);
+  const maxOutputTokensCap = resolveOutputTokenCap(summaryMode);
+  const maxOutputTokens = resolveOutputTokens(summaryMode);
   const timeoutMs = resolveTimeoutMs(settings);
   const resultsForPrompt = session.results.slice(0, Math.max(1, Math.min(settings.maxResults || 5, LIMITS.MAX_RESULTS_CAP)));
   const promptPayload = buildPromptPayload({
@@ -231,14 +379,21 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
   await broadcastSessionUpdated(sourceTabId);
 
   try {
+    const generationControls = resolveGenerationControls({
+      summaryMode,
+      expectsStructuredJson: promptPayload.expectsStructuredJson,
+      model
+    });
+
     const result = await requestOpenAiSummary({
       apiKey,
       model,
       prompt: promptPayload.input,
       instructions: promptPayload.instructions,
-      textVerbosity: promptPayload.expectsStructuredJson ? "low" : "",
-      reasoningEffort: promptPayload.expectsStructuredJson && supportsReasoningEffort(model) ? "minimal" : "",
+      textVerbosity: generationControls.textVerbosity,
+      reasoningEffort: generationControls.reasoningEffort,
       maxOutputTokens,
+      maxOutputTokensCap,
       timeoutMs,
       signal: abortController.signal
     });
@@ -251,6 +406,19 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
         formatUsed: "raw_text"
       };
 
+    const runUsage = summarizeRunUsage(result.usage, model, {
+      requestedMaxOutputTokens: maxOutputTokens,
+      attemptedMaxOutputTokens: result.attemptedMaxOutputTokens,
+      maxOutputTokensCap: result.maxOutputTokensCap
+    });
+    const runTelemetry = summarizeRunTelemetry(result, model, formatted.structured);
+    const usageByMode = buildUsageByMode(session.response?.usageByMode, summaryMode, runUsage);
+    const telemetryByMode = buildTelemetryByMode(
+      session.response?.telemetryByMode,
+      summaryMode,
+      runTelemetry
+    );
+
     if (inFlightControllersByTabId.get(sourceTabId)?.runId !== runId) {
       return;
     }
@@ -261,9 +429,25 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
 
     completeSessionRun(sourceTabId, {
       runId,
-      response: buildResponsePayload(formatted.text, resultsForPrompt, summaryMode, result.usage, formatted.structured),
+      response: buildResponsePayload(
+        formatted.text,
+        resultsForPrompt,
+        summaryMode,
+        result.usage,
+        formatted.structured,
+        usageByMode,
+        runTelemetry,
+        telemetryByMode
+      ),
       completedAt: Date.now()
     });
+    if (DEBUG.enabled || settings.debugMode) {
+      console.debug("[StartGPT][telemetry]", {
+        sourceTabId,
+        mode: summaryMode,
+        telemetry: runTelemetry
+      });
+    }
     await broadcastSessionUpdated(sourceTabId);
   } catch (error) {
     if (abortController.signal.aborted) {
@@ -294,34 +478,16 @@ async function runSummaryForTab(sourceTabId, { followUp = "", requestedSummaryMo
   }
 }
 
-async function setSidebarPanelForTab(tabId, url) {
-  if (!Number.isInteger(tabId) || !browser.sidebarAction?.setPanel) {
-    return;
-  }
-  await browser.sidebarAction.setPanel({
-    tabId,
-    panel: getSidebarPanelForUrl(url)
-  });
-}
-
-async function syncSidebarPanelsForAllTabs() {
-  if (!browser.sidebarAction?.setPanel) {
-    return;
-  }
-  const tabs = await browser.tabs.query({});
-  await Promise.all(
-    tabs
-      .filter((tab) => Number.isInteger(tab?.id))
-      .map((tab) => setSidebarPanelForTab(tab.id, tab.url))
-  );
-}
-
 function pruneSettings(rawSettings) {
+  const maxOutputTokensCandidate = Number.isInteger(rawSettings.maxOutputTokens)
+    ? rawSettings.maxOutputTokens
+    : DEFAULT_SETTINGS.maxOutputTokens;
+
   return {
     model: resolveModel(rawSettings),
     defaultSummaryMode: resolveSummaryMode(rawSettings.defaultSummaryMode, rawSettings),
     maxResults: Math.max(1, Math.min(LIMITS.MAX_RESULTS_CAP, Number.isInteger(rawSettings.maxResults) ? rawSettings.maxResults : DEFAULT_SETTINGS.maxResults)),
-    maxOutputTokens: resolveOutputTokens(rawSettings),
+    maxOutputTokens: Math.max(32, Math.min(LIMITS.MAX_EXPANDED_OUTPUT_TOKENS_CAP, maxOutputTokensCandidate)),
     requestTimeoutMs: resolveTimeoutMs(rawSettings),
     autoInjectOverviewCard: Boolean(rawSettings.autoInjectOverviewCard),
     debugMode: Boolean(rawSettings.debugMode)
@@ -348,7 +514,8 @@ async function handleRoutedMessage(route, message) {
     case "startpage_context_found": {
       const session = upsertStartpageSession(route.sourceTabId, message);
       setActiveSidebarTabId(route.sourceTabId);
-      if (session?.status === STATUS.CAPTURED) {
+      if (shouldAutoQueueQuickOverview(session)) {
+        markAutoQuickQueued(route.sourceTabId, session.contextFingerprint);
         const queuedSession = await queueSummaryRun(
           route.sourceTabId,
           "Automatic quick overview requested.",
@@ -391,10 +558,10 @@ async function handleRoutedMessage(route, message) {
 
     case "get_state": {
       const sourceTabId = Number.isInteger(route.sourceTabId) ? route.sourceTabId : null;
-      if (Number.isInteger(sourceTabId)) {
+      const session = Number.isInteger(sourceTabId) ? getSession(sourceTabId) : null;
+      if (Number.isInteger(sourceTabId) && session) {
         setActiveSidebarTabId(sourceTabId);
       }
-      const session = Number.isInteger(sourceTabId) ? getSession(sourceTabId) : null;
       return {
         ok: true,
         state: getStateSnapshot(),
@@ -476,33 +643,25 @@ async function handleMessage(message, sender) {
   return handleRoutedMessage(route, message);
 }
 
-function observeSidebarRouting() {
-  browser.tabs.onActivated.addListener(async ({ tabId }) => {
-    try {
-      const tab = await browser.tabs.get(tabId);
-      await setSidebarPanelForTab(tabId, tab?.url);
-    } catch {
-      // Ignore tab races.
-    }
-  });
-
-  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (typeof changeInfo.url !== "string" && changeInfo.status !== "complete") {
-      return;
-    }
-    setSidebarPanelForTab(tabId, tab?.url).catch(() => undefined);
-  });
-}
-
 const startupReady = initializeRuntimeState()
-  .then(() => syncSidebarPanelsForAllTabs())
   .catch((error) => {
     if (DEBUG.enabled) {
       console.error("[StartGPT][background] startup failed", error);
     }
   });
 
-observeSidebarRouting();
+browser.runtime.onInstalled.addListener((details) => {
+  startupReady.then(async () => {
+    if (details?.reason !== "install") {
+      return;
+    }
+    const hasApiKey = await hasStoredApiKey();
+    if (hasApiKey) {
+      return;
+    }
+    await browser.runtime.openOptionsPage();
+  }).catch(() => undefined);
+});
 
 browser.runtime.onMessage.addListener((message, sender) =>
   startupReady.then(() => handleMessage(message, sender))

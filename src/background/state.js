@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, STATUS, STORAGE_KEYS } from "./constants.js";
+import { buildContextFingerprint as buildCanonicalContextFingerprint } from "../content/shared/context-fingerprint.js";
 
 function toTabKey(tabId) {
   return String(tabId);
@@ -8,15 +9,87 @@ function cloneSerializable(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function hasContextChanged(previous, nextContext) {
+function normalizeText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+export function buildContextFingerprint(query, results) {
+  return buildCanonicalContextFingerprint(query, results);
+}
+
+function buildResultsFingerprint(results) {
+  if (!Array.isArray(results) || results.length === 0) {
+    return "";
+  }
+
+  return results
+    .slice(0, 6)
+    .map((result) => {
+      const url = normalizeText(result?.url);
+      const title = normalizeText(result?.title);
+      return `${url}::${title}`;
+    })
+    .join("||");
+}
+
+function hasContextChanged(previous, nextContext, nextContextFingerprint = "") {
   if (!previous || !nextContext) {
     return false;
   }
-  const previousQuery = String(previous.query || "");
-  const nextQuery = String(nextContext.query || "");
-  const previousUrl = String(previous.startpageUrl || "");
-  const nextUrl = String(nextContext.pageUrl || "");
-  return Boolean(previousQuery || previousUrl) && (previousQuery !== nextQuery || previousUrl !== nextUrl);
+
+  const previousQuery = normalizeText(previous.query);
+  const nextQuery = normalizeText(nextContext.query);
+  const previousFingerprint = buildContextFingerprint(previous.query, previous.results)
+    || normalizeText(previous.contextFingerprint)
+    || buildResultsFingerprint(previous.results);
+  const nextFingerprint = normalizeText(nextContextFingerprint)
+    || buildContextFingerprint(nextContext.query, nextContext.results)
+    || buildResultsFingerprint(nextContext.results);
+  const previousUrl = normalizeText(previous.startpageUrl);
+  const nextUrl = normalizeText(nextContext.pageUrl);
+
+  if (previousFingerprint && nextFingerprint) {
+    return previousFingerprint !== nextFingerprint;
+  }
+  if (previousFingerprint || nextFingerprint) {
+    return Boolean(previousQuery || previousUrl) && previousUrl !== nextUrl;
+  }
+
+  if (previousQuery !== nextQuery) {
+    return true;
+  }
+
+  return Boolean(previousQuery || previousUrl) && previousUrl !== nextUrl;
+}
+
+export function shouldAutoQueueQuickOverview(session) {
+  if (!session || session.status !== STATUS.CAPTURED) {
+    return false;
+  }
+
+  const contextFingerprint = normalizeText(session.contextFingerprint);
+  const lastAutoQuickFingerprint = normalizeText(session.lastAutoQuickFingerprint);
+  if (!contextFingerprint) {
+    return true;
+  }
+
+  return contextFingerprint !== lastAutoQuickFingerprint;
+}
+
+export function markAutoQuickQueued(tabId, contextFingerprint = "") {
+  const session = getSession(tabId);
+  if (!session) {
+    return null;
+  }
+
+  const fingerprint = normalizeText(contextFingerprint || session.contextFingerprint);
+  if (!fingerprint) {
+    return session;
+  }
+
+  return setSession(tabId, {
+    lastAutoQuickFingerprint: fingerprint
+  });
 }
 
 export function createInitialState(settings = DEFAULT_SETTINGS) {
@@ -76,25 +149,39 @@ export function setActiveSidebarTabId(tabId) {
 export function upsertStartpageSession(tabId, context) {
   const key = toTabKey(tabId);
   const previous = runtimeState.sessions[key] || {};
-  const changed = hasContextChanged(previous, context);
+  const contextFingerprint = buildContextFingerprint(context.query, context.results);
+  const changed = hasContextChanged(previous, context, contextFingerprint);
   const keepRunningState = previous.status === STATUS.RUNNING;
-  const nextStatus = keepRunningState ? STATUS.RUNNING : STATUS.CAPTURED;
+  const hasCompletedOverview = Number.isInteger(previous.completedAt)
+    && String(previous.response?.text || "").trim().length > 0;
+  const previousQuery = normalizeText(previous.query).toLowerCase();
+  const nextQuery = normalizeText(context.query).toLowerCase();
+  const sameQuery = Boolean(previousQuery) && previousQuery === nextQuery;
+  const keepCompletedLocked = hasCompletedOverview && sameQuery;
+  const nextStatus = keepRunningState
+    ? STATUS.RUNNING
+    : ((keepCompletedLocked || (!changed && hasCompletedOverview)) ? STATUS.COMPLETED : STATUS.CAPTURED);
+  const preservePreviousResponse = keepCompletedLocked || !changed;
 
   runtimeState.sessions[key] = {
     query: context.query,
     startpageUrl: context.pageUrl,
     capturedAt: context.capturedAt,
     results: Array.isArray(context.results) ? context.results : [],
+    contextFingerprint,
+    lastAutoQuickFingerprint: previous.lastAutoQuickFingerprint || "",
     status: nextStatus,
     runId: keepRunningState ? (previous.runId || "") : "",
-    response: changed ? null : (previous.response || null),
-    completedAt: changed ? null : (previous.completedAt || null),
+    response: preservePreviousResponse ? (previous.response || null) : null,
+    completedAt: preservePreviousResponse ? (previous.completedAt || null) : null,
     lastError: keepRunningState ? (previous.lastError || null) : null,
     debug: {
       ...(previous.debug || {}),
       progressMessage: keepRunningState
         ? (previous.debug?.progressMessage || "Run in progress.")
-        : "Context captured. Automatic quick overview will start shortly.",
+        : (nextStatus === STATUS.COMPLETED
+          ? "Overview complete."
+          : "Context captured. Automatic quick overview will start shortly."),
       lastErrorCode: keepRunningState ? (previous.debug?.lastErrorCode || "") : "",
       startpageScript: previous.debug?.startpageScript || {
         phase: "module_loaded",

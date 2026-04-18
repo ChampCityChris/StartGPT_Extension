@@ -65,6 +65,24 @@ describe("buildPrompt", () => {
     expect(payload.input).toContain("The summary should be 60-90 words.");
   });
 
+  it("builds expanded deep-dive payload with system and user prompts", () => {
+    const payload = buildPromptPayload({
+      query: "electric cars",
+      results: RESULTS,
+      mode: "expanded_perplexity"
+    });
+
+    expect(payload.expectsStructuredJson).toBe(false);
+    expect(payload.instructions).toContain("You are StartGPT Deep Dive. Your job is to turn search results into a compact, Perplexity-style overview.");
+    expect(payload.instructions).toContain("Required output format:");
+    expect(payload.instructions).toContain("Compression target:");
+    expect(payload.input).toContain("Query: electric cars");
+    expect(payload.input).toContain("Search results:");
+    expect(payload.input).toContain("1. [example.com] First Result - First snippet");
+    expect(payload.input).toContain("6. [unknown] (no result captured) - No snippet available.");
+    expect(payload.input).toContain("Target 250-300 words total.");
+  });
+
   it("includes follow-up context when provided", () => {
     const prompt = buildPrompt({
       query: "electric cars",

@@ -2,6 +2,7 @@ import { extractStartpageResults } from "./dom/extract-startpage-results.js";
 import { getOverviewCardMountTarget, isStartpageResultsPage } from "./dom/startpage-selectors.js";
 import { createOverviewCard } from "./inject/overview-card.js";
 import { MSG } from "./shared/message-types.js";
+import { buildContextSignature } from "./shared/context-fingerprint.js";
 import { sanitizeText } from "./shared/sanitize.js";
 
 const DEFAULT_MAX_RESULTS = 6;
@@ -10,15 +11,22 @@ const RESULTS_DEBOUNCE_MS = 350;
 const RUN_STATES = new Set(["queued", "running"]);
 
 const cardState = {
+  sourceTabId: null,
   query: "",
   status: "idle",
+  summaryMode: "",
   summary: "",
   sources: [],
+  quickOverviewTelemetry: "",
+  deepDiveTelemetry: "",
   error: "",
-  progressDetail: ""
+  progressDetail: "",
+  showDeepDiveAction: false,
+  deepDivePending: false
 };
 
 const runtime = {
+  sourceTabId: null,
   activeUrl: "",
   lastSignature: "",
   observer: null,
@@ -37,7 +45,11 @@ function updateCard(nextState) {
 
 function ensureOverviewCard() {
   if (!overviewCard) {
-    overviewCard = createOverviewCard();
+    overviewCard = createOverviewCard({
+      onRequestDeepDive: () => {
+        requestExpandedDeepDive().catch(() => undefined);
+      }
+    });
   }
   overviewCard.mount(getOverviewCardMountTarget(document));
   overviewCard.render(cardState);
@@ -47,8 +59,11 @@ function resetCardForResultsPage() {
   updateCard({
     query: "",
     status: "loading",
+    summaryMode: "",
     summary: "",
     sources: [],
+    quickOverviewTelemetry: "",
+    deepDiveTelemetry: "",
     error: "",
     progressDetail: "Capturing visible Startpage results."
   });
@@ -58,15 +73,7 @@ function getSessionFromStateResponse(response) {
   if (!response?.ok) {
     return null;
   }
-  if (response.session) {
-    return response.session;
-  }
-
-  const tabId = response?.state?.global?.activeSidebarTabId;
-  if (!Number.isInteger(tabId)) {
-    return null;
-  }
-  return response?.state?.sessions?.[String(tabId)] || null;
+  return response.session || null;
 }
 
 function toCardStatus(status) {
@@ -74,6 +81,27 @@ function toCardStatus(status) {
     return "idle";
   }
   return status;
+}
+
+function normalizeQueryForComparison(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function hasLockedCompletedSummaryForQuery(query) {
+  if (cardState.status !== "completed") {
+    return false;
+  }
+
+  if (!String(cardState.summary || "").trim()) {
+    return false;
+  }
+
+  const cardQuery = normalizeQueryForComparison(cardState.query);
+  const nextQuery = normalizeQueryForComparison(query);
+  return Boolean(cardQuery) && cardQuery === nextQuery;
 }
 
 function describeProgress(session) {
@@ -98,18 +126,53 @@ function describeProgress(session) {
   }
 }
 
+function formatIntegerMetric(value) {
+  if (!Number.isInteger(value) || value < 0) {
+    return "n/a";
+  }
+  return value.toLocaleString();
+}
+
+function formatModeTelemetry(telemetryByMode, mode, fallbackLabel) {
+  const entry = telemetryByMode && typeof telemetryByMode === "object"
+    ? telemetryByMode[mode]
+    : null;
+  if (!entry || typeof entry !== "object") {
+    return `${fallbackLabel}: out n/a | reasoning n/a | json chars n/a | model n/a | retries n/a`;
+  }
+
+  const modelSnapshot = String(entry.modelSnapshot || "").trim() || "n/a";
+  return `${fallbackLabel}: out ${formatIntegerMetric(entry.outputTokens)} | reasoning ${formatIntegerMetric(entry.reasoningTokens)} | json chars ${formatIntegerMetric(entry.visibleJsonChars)} | model ${modelSnapshot} | retries ${formatIntegerMetric(entry.retryCount)}`;
+}
+
 function applySessionState(session) {
   if (!session) {
     return;
   }
+  if (Number.isInteger(session.tabId)) {
+    runtime.sourceTabId = session.tabId;
+  }
+  const responseText = String(session.response?.text || "").trim();
+  const telemetryByMode = session.response?.telemetryByMode && typeof session.response.telemetryByMode === "object"
+    ? session.response.telemetryByMode
+    : {};
+  const showDeepDiveAction = session.status === "completed"
+    && Boolean(responseText)
+    && session.response?.mode !== "expanded_perplexity";
 
   updateCard({
+    sourceTabId: Number.isInteger(session.tabId) ? session.tabId : cardState.sourceTabId,
     query: session.query || cardState.query,
     status: toCardStatus(session.status),
+    summaryMode: String(session.response?.mode || ""),
     summary: session.response?.text || "",
     sources: Array.isArray(session.response?.sources) ? session.response.sources : [],
+    quickOverviewTelemetry: formatModeTelemetry(telemetryByMode, "quick_overview", "Quick"),
+    deepDiveTelemetry: formatModeTelemetry(telemetryByMode, "expanded_perplexity", "Deep"),
     error: session.lastError?.message || "",
-    progressDetail: describeProgress(session)
+    progressDetail: describeProgress(session),
+    showDeepDiveAction,
+    deepDivePending: false
   });
 }
 
@@ -125,13 +188,7 @@ function buildContextPayload() {
 }
 
 function buildPayloadSignature(payload) {
-  return JSON.stringify({
-    pageUrl: payload.pageUrl || "",
-    query: payload.query || "",
-    results: Array.isArray(payload.results)
-      ? payload.results.map((result) => [result.rank, result.title, result.url, result.snippet, result.displayUrl])
-      : []
-  });
+  return buildContextSignature(payload);
 }
 
 function registerRuntimeListener() {
@@ -140,13 +197,32 @@ function registerRuntimeListener() {
   }
 
   browser.runtime.onMessage.addListener((message) => {
-    if (!message?.type || message.type !== MSG.SESSION_UPDATED) {
+    if (!message?.type) {
       return undefined;
     }
-    if (!message?.session) {
+
+    if (message.type === MSG.SESSION_UPDATED) {
+      if (!message?.session) {
+        return undefined;
+      }
+      applySessionState(message.session);
       return undefined;
     }
-    applySessionState(message.session);
+
+    if (message.type === MSG.POPUP_GET_OVERVIEW_TEXT) {
+      const responseText = String(cardState.summary || "").trim();
+      return {
+        ok: true,
+        overviewText: responseText,
+        query: String(cardState.query || ""),
+        summaryMode: String(cardState.summaryMode || ""),
+        status: String(cardState.status || ""),
+        sourceTabId: Number.isInteger(runtime.sourceTabId)
+          ? runtime.sourceTabId
+          : (Number.isInteger(cardState.sourceTabId) ? cardState.sourceTabId : null)
+      };
+    }
+
     return undefined;
   });
 
@@ -163,24 +239,110 @@ async function refreshFromBackground() {
   applySessionState(getSessionFromStateResponse(response));
 }
 
-async function captureAndSendContext() {
-  const payload = buildContextPayload();
-  const signature = buildPayloadSignature(payload);
-  if (signature === runtime.lastSignature) {
+async function requestExpandedDeepDive() {
+  try {
+    await refreshFromBackground();
+  } catch {
+    // Fall back to local runtime/card state and context recapture below.
+  }
+
+  let sourceTabId = Number.isInteger(runtime.sourceTabId)
+    ? runtime.sourceTabId
+    : (Number.isInteger(cardState.sourceTabId) ? cardState.sourceTabId : null);
+
+  if (!Number.isInteger(sourceTabId)) {
+    await captureAndSendContext({ forceResync: true });
+    sourceTabId = Number.isInteger(runtime.sourceTabId)
+      ? runtime.sourceTabId
+      : (Number.isInteger(cardState.sourceTabId) ? cardState.sourceTabId : null);
+  }
+
+  if (!Number.isInteger(sourceTabId)) {
+    updateCard({
+      error: "Unable to resolve tab for deep dive run."
+    });
     return;
   }
 
-  runtime.lastSignature = signature;
+  updateCard({
+    deepDivePending: true,
+    error: "",
+    progressDetail: "Deep dive requested."
+  });
+
+  const response = await browser.runtime.sendMessage({
+    type: MSG.REQUEST_RUN_FOR_TAB,
+    sourceTabId,
+    summaryMode: "expanded_perplexity"
+  });
+
+  if (!response?.ok) {
+    if (response?.error === "session_not_found") {
+      await captureAndSendContext({ forceResync: true });
+      const retrySourceTabId = Number.isInteger(runtime.sourceTabId)
+        ? runtime.sourceTabId
+        : (Number.isInteger(cardState.sourceTabId) ? cardState.sourceTabId : sourceTabId);
+      const retryResponse = await browser.runtime.sendMessage({
+        type: MSG.REQUEST_RUN_FOR_TAB,
+        sourceTabId: retrySourceTabId,
+        summaryMode: "expanded_perplexity"
+      });
+      if (retryResponse?.ok) {
+        await refreshFromBackground();
+        return;
+      }
+    }
+    updateCard({
+      deepDivePending: false,
+      error: sanitizeText(response?.error || "Could not queue deep dive run.")
+    });
+    return;
+  }
+
+  await refreshFromBackground();
+}
+
+async function captureAndSendContext({ forceResync = false } = {}) {
+  const payload = buildContextPayload();
+  const signature = buildPayloadSignature(payload);
+  if (!forceResync && hasLockedCompletedSummaryForQuery(payload.query)) {
+    runtime.lastSignature = signature;
+    return;
+  }
+
+  if (!forceResync && signature === runtime.lastSignature) {
+    try {
+      const stateResponse = await browser.runtime.sendMessage({
+        type: MSG.SIDEBAR_GET_STATE
+      });
+      if (stateResponse?.ok) {
+        const session = getSessionFromStateResponse(stateResponse);
+        if (session) {
+          applySessionState(session);
+          return;
+        }
+      }
+    } catch {
+      // Continue below and attempt to resync by sending context again.
+    }
+
+    if (hasLockedCompletedSummaryForQuery(payload.query)) {
+      return;
+    }
+  }
+
   const response = await browser.runtime.sendMessage(payload);
   if (!response?.ok) {
     throw new Error(response?.error || "context_send_failed");
   }
+  runtime.lastSignature = signature;
   if (response.session) {
     applySessionState(response.session);
   } else if (!RUN_STATES.has(cardState.status)) {
     updateCard({
       query: payload.query || "",
       status: "captured",
+      summaryMode: "",
       progressDetail: "Context captured. Automatic quick overview will start shortly.",
       error: ""
     });

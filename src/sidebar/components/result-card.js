@@ -1,3 +1,5 @@
+import { renderSummaryText } from "../../content/shared/summary-render.js";
+
 function getPlaceholder(status) {
   if (status === "failed") {
     return "Run failed. See error details below.";
@@ -9,6 +11,5 @@ function getPlaceholder(status) {
 }
 
 export function renderResultCard(element, text, status) {
-  const value = String(text || "").trim();
-  element.textContent = value || getPlaceholder(status);
+  renderSummaryText(element, text, getPlaceholder(status));
 }

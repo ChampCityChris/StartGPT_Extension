@@ -148,6 +148,10 @@ function readTextValue(value) {
   return "";
 }
 
+function readUsageOutputTokens(payload) {
+  return Number.isInteger(payload?.usage?.output_tokens) ? payload.usage.output_tokens : null;
+}
+
 function gatherResponseShapeDiagnostics(payload, responseText = "") {
   const outputItemTypes = [];
   const contentTypes = [];
@@ -173,6 +177,7 @@ function gatherResponseShapeDiagnostics(payload, responseText = "") {
     incompleteReason: typeof payload?.incomplete_details?.reason === "string"
       ? payload.incomplete_details.reason
       : "",
+    usageOutputTokens: readUsageOutputTokens(payload),
     outputItemCount: output.length,
     outputItemTypes,
     contentTypes,
@@ -182,8 +187,22 @@ function gatherResponseShapeDiagnostics(payload, responseText = "") {
   };
 }
 
-function buildNoTextError({ payload, responseText, maxOutputTokens }) {
-  const diagnostics = gatherResponseShapeDiagnostics(payload, responseText);
+function buildNoTextError({ payload, responseText, maxOutputTokens, maxOutputTokensCap }) {
+  const responseDiagnostics = gatherResponseShapeDiagnostics(payload, responseText);
+  const requestedMaxOutputTokens = Number.isInteger(maxOutputTokens) ? maxOutputTokens : null;
+  const normalizedMaxOutputTokensCap = Number.isInteger(maxOutputTokensCap)
+    ? maxOutputTokensCap
+    : null;
+  const diagnostics = {
+    ...responseDiagnostics,
+    requestedMaxOutputTokens,
+    maxOutputTokensCap: normalizedMaxOutputTokensCap
+  };
+  const observedOutputTokens = Number.isInteger(responseDiagnostics.usageOutputTokens)
+    ? responseDiagnostics.usageOutputTokens
+    : null;
+  const requestLabel = Number.isInteger(requestedMaxOutputTokens) ? requestedMaxOutputTokens : "n/a";
+  const capLabel = Number.isInteger(normalizedMaxOutputTokensCap) ? normalizedMaxOutputTokensCap : "n/a";
 
   if (!payload) {
     return new OpenAiClientError(
@@ -205,9 +224,16 @@ function buildNoTextError({ payload, responseText, maxOutputTokens }) {
   if (diagnostics.responseStatus === "incomplete") {
     const reason = diagnostics.incompleteReason || "unknown";
     if (reason === "max_output_tokens") {
+      if (Number.isInteger(observedOutputTokens)) {
+        return new OpenAiClientError(
+          "OPENAI_INCOMPLETE_MAX_OUTPUT_TOKENS",
+          `OpenAI stopped before visible output (reason: max_output_tokens with usage.output_tokens ${observedOutputTokens}, run cap ${capLabel}, request max_output_tokens ${requestLabel}).`,
+          { recoverable: true, retryable: true, diagnostics }
+        );
+      }
       return new OpenAiClientError(
         "OPENAI_INCOMPLETE_MAX_OUTPUT_TOKENS",
-        `OpenAI stopped before visible output (reason: max_output_tokens at ${maxOutputTokens} tokens).`,
+        `OpenAI stopped before visible output (reason: max_output_tokens at ${requestLabel} tokens for this attempt, run cap ${capLabel}).`,
         { recoverable: true, retryable: true, diagnostics }
       );
     }
@@ -283,6 +309,22 @@ function extractResponseText(payload) {
   }
 
   return chunks.join("\n").trim();
+}
+
+function extractUsage(payload) {
+  if (!payload?.usage || typeof payload.usage !== "object") {
+    return null;
+  }
+
+  const outputTokenDetails = payload.usage.output_tokens_details;
+  return {
+    inputTokens: Number.isInteger(payload.usage.input_tokens) ? payload.usage.input_tokens : null,
+    outputTokens: Number.isInteger(payload.usage.output_tokens) ? payload.usage.output_tokens : null,
+    totalTokens: Number.isInteger(payload.usage.total_tokens) ? payload.usage.total_tokens : null,
+    reasoningTokens: Number.isInteger(outputTokenDetails?.reasoning_tokens)
+      ? outputTokenDetails.reasoning_tokens
+      : null
+  };
 }
 
 function normalizeUnknownFailure(error) {
@@ -397,6 +439,7 @@ export async function requestOpenAiSummary({
   textVerbosity = "",
   reasoningEffort = "",
   maxOutputTokens,
+  maxOutputTokensCap = LIMITS.MAX_OUTPUT_TOKENS_CAP,
   timeoutMs,
   signal
 }) {
@@ -411,8 +454,18 @@ export async function requestOpenAiSummary({
   const trimmedInstructions = String(instructions || "").trim();
   const normalizedTextVerbosity = String(textVerbosity || "").trim().toLowerCase();
   const normalizedReasoningEffort = String(reasoningEffort || "").trim().toLowerCase();
+  const normalizedMaxOutputTokensCap = Math.max(
+    32,
+    Number.isInteger(maxOutputTokensCap) ? maxOutputTokensCap : LIMITS.MAX_OUTPUT_TOKENS_CAP
+  );
 
-  let requestMaxOutputTokens = Math.max(32, Number.isInteger(maxOutputTokens) ? maxOutputTokens : 32);
+  let requestMaxOutputTokens = Math.max(
+    32,
+    Math.min(
+      normalizedMaxOutputTokensCap,
+      Number.isInteger(maxOutputTokens) ? maxOutputTokens : 32
+    )
+  );
 
   const maxAttempts = 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -454,20 +507,21 @@ export async function requestOpenAiSummary({
         throw buildNoTextError({
           payload: parsed,
           responseText: text,
-          maxOutputTokens: requestMaxOutputTokens
+          maxOutputTokens: requestMaxOutputTokens,
+          maxOutputTokensCap: normalizedMaxOutputTokensCap
         });
       }
 
       return {
         text: outputText,
         responseId: typeof parsed?.id === "string" ? parsed.id : "",
-        usage: parsed?.usage && typeof parsed.usage === "object"
-          ? {
-            inputTokens: Number.isInteger(parsed.usage.input_tokens) ? parsed.usage.input_tokens : null,
-            outputTokens: Number.isInteger(parsed.usage.output_tokens) ? parsed.usage.output_tokens : null,
-            totalTokens: Number.isInteger(parsed.usage.total_tokens) ? parsed.usage.total_tokens : null
-          }
-          : null
+        modelSnapshot: typeof parsed?.model === "string" && parsed.model.trim()
+          ? parsed.model.trim()
+          : String(model || "").trim(),
+        retryCount: Math.max(0, attempt - 1),
+        attemptedMaxOutputTokens: requestMaxOutputTokens,
+        maxOutputTokensCap: normalizedMaxOutputTokensCap,
+        usage: extractUsage(parsed)
       };
     } catch (error) {
       const normalized = normalizeUnknownFailure(error);
@@ -475,19 +529,33 @@ export async function requestOpenAiSummary({
         normalized.code === "OPENAI_INCOMPLETE_MAX_OUTPUT_TOKENS"
         && attempt < maxAttempts
       ) {
-        const boostedTokens = Math.min(
-          LIMITS.MAX_OUTPUT_TOKENS_CAP,
-          Math.max(requestMaxOutputTokens + 200, Math.ceil(requestMaxOutputTokens * 1.5))
-        );
-        if (boostedTokens > requestMaxOutputTokens) {
-          requestMaxOutputTokens = boostedTokens;
+        const observedOutputTokens = Number.isInteger(normalized?.diagnostics?.usageOutputTokens)
+          ? normalized.diagnostics.usageOutputTokens
+          : null;
+        const capReachedByUsageOutputTokens = Number.isInteger(observedOutputTokens)
+          && observedOutputTokens >= normalizedMaxOutputTokensCap;
+        if (capReachedByUsageOutputTokens) {
+          normalized.retryable = false;
           normalized.diagnostics = {
             ...(normalized.diagnostics || {}),
-            retryPlanned: true,
-            retryMaxOutputTokens: boostedTokens
+            retryPlanned: false,
+            retryBlockedByCap: true
           };
         } else {
-          normalized.retryable = false;
+          const boostedTokens = Math.min(
+            normalizedMaxOutputTokensCap,
+            Math.max(requestMaxOutputTokens + 200, Math.ceil(requestMaxOutputTokens * 2))
+          );
+          if (boostedTokens > requestMaxOutputTokens) {
+            requestMaxOutputTokens = boostedTokens;
+            normalized.diagnostics = {
+              ...(normalized.diagnostics || {}),
+              retryPlanned: true,
+              retryMaxOutputTokens: boostedTokens
+            };
+          } else {
+            normalized.retryable = false;
+          }
         }
       }
       const canRetry = normalized.retryable && attempt < maxAttempts;

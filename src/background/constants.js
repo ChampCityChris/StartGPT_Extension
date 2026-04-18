@@ -18,6 +18,7 @@ export const SUMMARY_MODE = {
 
 export const ALLOWED_MODELS = [
   "gpt-5-nano",
+  "gpt-5.4-nano",
   "gpt-4.1-mini",
   "gpt-4.1",
   "gpt-4o-mini"
@@ -36,7 +37,8 @@ export const LIMITS = {
   MAX_FOLLOW_UP_CHARS: 1200,
   MAX_API_KEY_CHARS: 200,
   MAX_RESULTS_CAP: 10,
-  MAX_OUTPUT_TOKENS_CAP: 1200,
+  MAX_OUTPUT_TOKENS_CAP: 500,
+  MAX_EXPANDED_OUTPUT_TOKENS_CAP: 750,
   REQUEST_TIMEOUT_MS_CAP: 60000,
   REQUEST_TIMEOUT_MS_MIN: 3000
 };
@@ -48,9 +50,14 @@ export const OPENAI_DEFAULTS = {
 export const DEFAULT_SETTINGS = {
   autoInjectOverviewCard: true,
   maxResults: 5,
-  model: ALLOWED_MODELS[0],
+  model: "gpt-5-nano",
   defaultSummaryMode: SUMMARY_MODE.QUICK_OVERVIEW,
-  maxOutputTokens: 600,
+  maxOutputTokens: LIMITS.MAX_OUTPUT_TOKENS_CAP,
   requestTimeoutMs: 30000,
   debugMode: false
+};
+
+export const FORCED_MODELS_BY_SUMMARY_MODE = {
+  [SUMMARY_MODE.QUICK_OVERVIEW]: "gpt-5-nano",
+  [SUMMARY_MODE.EXPANDED]: "gpt-5.4-nano"
 };
